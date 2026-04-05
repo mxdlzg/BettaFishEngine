@@ -5,7 +5,8 @@ Report node for the LangGraph public opinion workflow.
 Generates final report files using ReportEngine.
 """
 
-from typing import Dict, Any, Optional
+from typing import Any, Optional, Dict
+from langchain_core.runnables import RunnableConfig
 
 from multi_agents.state import PublicOpinionState, StateUpdate
 from multi_agents.tools.progress import add_progress, Stage
@@ -17,7 +18,7 @@ from multi_agents.prompts.report import build_report_messages
 logger = get_logger("report_node")
 
 
-def report_node(state: PublicOpinionState, config: Optional[Dict] = None) -> StateUpdate:
+def report_node(state: PublicOpinionState, config: Optional[RunnableConfig] = None) -> StateUpdate:
     """
     Report node: Generate final report.
     

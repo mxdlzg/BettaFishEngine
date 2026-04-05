@@ -5,7 +5,8 @@ Media Engine node for the LangGraph public opinion workflow.
 Calls the MediaEngine for media/multimedia analysis.
 """
 
-from typing import Dict, Any, Optional
+from typing import Any, Optional
+from langchain_core.runnables import RunnableConfig
 
 from multi_agents.state import PublicOpinionState, StateUpdate
 from multi_agents.tools.progress import add_progress, Stage
@@ -15,7 +16,7 @@ from multi_agents.tools.engine_bridge import get_engine_bridge
 logger = get_logger("media_engine_node")
 
 
-def media_engine_node(state: PublicOpinionState, config: Optional[Dict] = None) -> StateUpdate:
+def media_engine_node(state: PublicOpinionState, config: Optional[RunnableConfig] = None) -> StateUpdate:
     """
     Media Engine node: Run media content analysis.
     

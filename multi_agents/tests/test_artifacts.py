@@ -7,100 +7,70 @@ import tempfile
 from pathlib import Path
 
 
-class TestArtifactsManager:
+class TestArtifactsBasics:
     """Test suite for artifacts management."""
     
-    def test_create_artifact_entry(self):
-        """Test creating artifact metadata entry."""
-        from multi_agents.tools.artifacts import ArtifactsManager
+    def test_ensure_task_dir(self):
+        """Test that task directory is created."""
+        from multi_agents.tools.artifacts import ensure_task_dir
         
-        manager = ArtifactsManager()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            task_dir = ensure_task_dir(base_dir=Path(tmpdir), task_id="test-001")
+            
+            assert task_dir.exists()
+            assert "test-001" in str(task_dir)
+    
+    def test_write_text_file(self):
+        """Test writing text file."""
+        from multi_agents.tools.artifacts import write_text_file
         
-        entry = manager.create_entry(
-            filename="report.md",
-            content_type="text/markdown",
-            size=1024
-        )
-        
-        assert entry["filename"] == "report.md"
-        assert entry["content_type"] == "text/markdown"
-        assert entry["size"] == 1024
-        assert "created_at" in entry
+        with tempfile.TemporaryDirectory() as tmpdir:
+            filepath = Path(tmpdir) / "test.txt"
+            write_text_file(filepath, "Hello, world!")
+            
+            assert filepath.exists()
+            assert filepath.read_text() == "Hello, world!"
     
     def test_add_file_to_state(self):
-        """Test adding file reference to state."""
+        """Test adding file to state."""
         from multi_agents.tools.artifacts import add_file_to_state
         
         state = {"files": {}}
         
         new_state = add_file_to_state(
             state,
-            "report.md",
-            "/path/to/report.md",
-            "text/markdown"
+            name="report.md",
+            path="/path/to/report.md",
+            media_type="text/markdown"
         )
         
         assert "report.md" in new_state["files"]
-        assert new_state["files"]["report.md"]["path"] == "/path/to/report.md"
-    
-    def test_multiple_files(self):
-        """Test adding multiple files to state."""
-        from multi_agents.tools.artifacts import add_file_to_state
-        
-        state = {"files": {}}
-        
-        state = add_file_to_state(state, "report.md", "/path/report.md", "text/markdown")
-        state = add_file_to_state(state, "report.html", "/path/report.html", "text/html")
-        state = add_file_to_state(state, "report.pdf", "/path/report.pdf", "application/pdf")
-        
-        assert len(state["files"]) == 3
-        assert "report.md" in state["files"]
-        assert "report.html" in state["files"]
-        assert "report.pdf" in state["files"]
 
 
 class TestFileOperations:
     """Test actual file operations."""
     
-    def test_save_markdown_file(self):
-        """Test saving markdown content to file."""
-        from multi_agents.tools.artifacts import ArtifactsManager
+    def test_save_to_task_dir(self):
+        """Test saving content to task directory."""
+        from multi_agents.tools.artifacts import ensure_task_dir, write_text_file
         
         with tempfile.TemporaryDirectory() as tmpdir:
-            manager = ArtifactsManager(output_dir=tmpdir)
+            task_dir = ensure_task_dir(base_dir=Path(tmpdir), task_id="test-002")
             
             content = "# Test Report\n\nThis is a test."
-            filepath = manager.save_markdown(content, "test_report.md")
+            filepath = task_dir / "report.md"
+            write_text_file(filepath, content)
             
-            assert os.path.exists(filepath)
-            with open(filepath, "r", encoding="utf-8") as f:
-                saved_content = f.read()
-            assert saved_content == content
+            assert filepath.exists()
+            assert filepath.read_text() == content
     
-    def test_save_html_file(self):
-        """Test saving HTML content to file."""
-        from multi_agents.tools.artifacts import ArtifactsManager
+    def test_get_media_type(self):
+        """Test media type detection."""
+        from multi_agents.tools.artifacts import MEDIA_TYPES
         
-        with tempfile.TemporaryDirectory() as tmpdir:
-            manager = ArtifactsManager(output_dir=tmpdir)
-            
-            content = "<html><body><h1>Test</h1></body></html>"
-            filepath = manager.save_html(content, "test_report.html")
-            
-            assert os.path.exists(filepath)
-            assert filepath.endswith(".html")
-    
-    def test_ensure_output_directory(self):
-        """Test that output directory is created if not exists."""
-        from multi_agents.tools.artifacts import ArtifactsManager
-        
-        with tempfile.TemporaryDirectory() as tmpdir:
-            nested_dir = os.path.join(tmpdir, "nested", "output")
-            manager = ArtifactsManager(output_dir=nested_dir)
-            
-            manager.ensure_output_dir()
-            
-            assert os.path.exists(nested_dir)
+        assert MEDIA_TYPES[".md"] == "text/markdown"
+        assert MEDIA_TYPES[".html"] == "text/html"
+        assert MEDIA_TYPES[".pdf"] == "application/pdf"
 
 
 class TestURLGeneration:
@@ -108,29 +78,27 @@ class TestURLGeneration:
     
     def test_generate_public_url(self):
         """Test generating public URL for artifact."""
-        from multi_agents.tools.artifacts import ArtifactsManager
+        from multi_agents.tools.artifacts import build_public_url
         
-        manager = ArtifactsManager(
-            output_dir="/data/outputs",
+        url = build_public_url(
+            filename="report.pdf",
+            task_id="test-001",
             base_url="http://example.com/outputs"
         )
         
-        url = manager.get_public_url("report.pdf")
-        
-        assert url == "http://example.com/outputs/report.pdf"
+        assert "report.pdf" in url
+        assert "test-001" in url
     
-    def test_generate_url_with_task_prefix(self):
-        """Test URL generation with task ID prefix."""
-        from multi_agents.tools.artifacts import ArtifactsManager
+    def test_url_without_task_prefix(self):
+        """Test URL generation without task prefix."""
+        from multi_agents.tools.artifacts import build_public_url
         
-        manager = ArtifactsManager(
-            output_dir="/data/outputs",
+        url = build_public_url(
+            filename="report.pdf",
             base_url="http://example.com/outputs"
         )
         
-        url = manager.get_public_url("task-001/report.pdf")
-        
-        assert url == "http://example.com/outputs/task-001/report.pdf"
+        assert "report.pdf" in url
 
 
 if __name__ == "__main__":

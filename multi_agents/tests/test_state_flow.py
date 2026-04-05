@@ -16,19 +16,17 @@ class TestPublicOpinionState:
         state: PublicOpinionState = {
             "messages": [{"role": "user", "content": "测试查询"}],
             "task_id": "",
-            "trace_id": "",
-            "user_query": "",
+            "query": "",
             "analysis_plan": {},
-            "kb_candidates": [],
+            "selected_kbs": [],
             "query_engine_result": {},
             "media_engine_result": {},
             "insight_engine_result": {},
             "kb_results": [],
             "forum_rounds": [],
-            "merged_analysis": "",
+            "merged_result": {},
             "report_md": "",
             "report_html": "",
-            "report_pdf_path": "",
             "files": {},
             "progress_log": [],
             "errors": [],
@@ -68,19 +66,17 @@ class TestNodeStateFlow:
         input_state = {
             "messages": [{"role": "user", "content": "分析人工智能舆情"}],
             "task_id": "",
-            "trace_id": "",
-            "user_query": "",
+            "query": "",
             "analysis_plan": {},
-            "kb_candidates": [],
+            "selected_kbs": [],
             "query_engine_result": {},
             "media_engine_result": {},
             "insight_engine_result": {},
             "kb_results": [],
             "forum_rounds": [],
-            "merged_analysis": "",
+            "merged_result": {},
             "report_md": "",
             "report_html": "",
-            "report_pdf_path": "",
             "files": {},
             "progress_log": [],
             "errors": [],
@@ -89,27 +85,26 @@ class TestNodeStateFlow:
         
         result = intake_node(input_state)
         
-        # Should have task_id, trace_id, user_query
+        # Should have task_id and query
         assert "task_id" in result
-        assert "trace_id" in result
-        assert "user_query" in result
+        assert "query" in result
         assert len(result["task_id"]) > 0
-        assert result["user_query"] == "分析人工智能舆情"
+        assert result["query"] == "分析人工智能舆情"
     
     def test_progress_log_accumulation(self):
         """Test that progress_log accumulates across nodes."""
-        from multi_agents.tools.progress import add_progress
+        from multi_agents.tools.progress import add_progress, Stage
         
-        state = {"progress_log": []}
+        state = {"progress_log": [], "task_id": "test-001"}
         
         # Add multiple progress entries
-        state = add_progress(state, "intake", "started")
-        state = add_progress(state, "intake", "completed")
-        state = add_progress(state, "planner", "started")
+        state = add_progress(state, Stage.CREATED)
+        state = add_progress(state, Stage.PLANNING)
+        state = add_progress(state, Stage.QUERYING)
         
         assert len(state["progress_log"]) == 3
-        assert state["progress_log"][0]["stage"] == "intake"
-        assert state["progress_log"][2]["stage"] == "planner"
+        assert state["progress_log"][0]["stage"] == Stage.CREATED
+        assert state["progress_log"][2]["stage"] == Stage.QUERYING
     
     def test_error_accumulation(self):
         """Test that errors accumulate without overwriting."""

@@ -5,7 +5,8 @@ Query Engine node for the LangGraph public opinion workflow.
 Calls the QueryEngine for public web/news analysis.
 """
 
-from typing import Dict, Any, Optional
+from typing import Any, Optional
+from langchain_core.runnables import RunnableConfig
 
 from multi_agents.state import PublicOpinionState, StateUpdate
 from multi_agents.tools.progress import add_progress, Stage
@@ -15,7 +16,7 @@ from multi_agents.tools.engine_bridge import get_engine_bridge
 logger = get_logger("query_engine_node")
 
 
-def query_engine_node(state: PublicOpinionState, config: Optional[Dict] = None) -> StateUpdate:
+def query_engine_node(state: PublicOpinionState, config: Optional[RunnableConfig] = None) -> StateUpdate:
     """
     Query Engine node: Run public information analysis.
     

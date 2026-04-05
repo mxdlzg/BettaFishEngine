@@ -5,7 +5,8 @@ Artifacts node for the LangGraph public opinion workflow.
 Packages output files and prepares state.files for ALB frontend.
 """
 
-from typing import Dict, Any, Optional
+from typing import Any, Optional
+from langchain_core.runnables import RunnableConfig
 from pathlib import Path
 from datetime import datetime
 
@@ -25,7 +26,7 @@ from multi_agents.settings import get_settings
 logger = get_logger("artifacts_node")
 
 
-def artifacts_node(state: PublicOpinionState, config: Optional[Dict] = None) -> StateUpdate:
+def artifacts_node(state: PublicOpinionState, config: Optional[RunnableConfig] = None) -> StateUpdate:
     """
     Artifacts node: Package output files.
     

@@ -5,7 +5,8 @@ Forum Round 3 node for the LangGraph public opinion workflow.
 Final round of multi-source analysis synthesis for consensus.
 """
 
-from typing import Dict, Any, Optional
+from typing import Any, Optional
+from langchain_core.runnables import RunnableConfig
 
 from multi_agents.state import PublicOpinionState, StateUpdate
 from multi_agents.tools.progress import add_progress, Stage
@@ -16,7 +17,7 @@ from multi_agents.prompts.moderator import build_moderator_round_3_messages
 logger = get_logger("forum_round_3")
 
 
-def forum_round_3_node(state: PublicOpinionState, config: Optional[Dict] = None) -> StateUpdate:
+def forum_round_3_node(state: PublicOpinionState, config: Optional[RunnableConfig] = None) -> StateUpdate:
     """
     Forum Round 3 node: Final consensus discussion.
     

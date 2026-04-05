@@ -5,7 +5,8 @@ Finalize node for the LangGraph public opinion workflow.
 Generates the final answer for user display.
 """
 
-from typing import Dict, Any, Optional
+from typing import Any, Optional
+from langchain_core.runnables import RunnableConfig
 
 from multi_agents.state import PublicOpinionState, StateUpdate
 from multi_agents.tools.progress import add_progress, Stage, get_progress_text
@@ -14,7 +15,7 @@ from multi_agents.tools.logger import get_logger, log_node_start, log_node_end
 logger = get_logger("finalize_node")
 
 
-def finalize_node(state: PublicOpinionState, config: Optional[Dict] = None) -> StateUpdate:
+def finalize_node(state: PublicOpinionState, config: Optional[RunnableConfig] = None) -> StateUpdate:
     """
     Finalize node: Generate final user-facing answer.
     

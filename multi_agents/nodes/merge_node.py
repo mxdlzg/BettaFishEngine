@@ -5,7 +5,8 @@ Merge node for the LangGraph public opinion workflow.
 Merges all analysis results into unified conclusions.
 """
 
-from typing import Dict, Any, Optional
+from typing import Any, Optional, Dict, List
+from langchain_core.runnables import RunnableConfig
 
 from multi_agents.state import PublicOpinionState, StateUpdate
 from multi_agents.tools.progress import add_progress, Stage
@@ -16,7 +17,7 @@ from multi_agents.prompts.merge import build_merge_messages
 logger = get_logger("merge_node")
 
 
-def merge_node(state: PublicOpinionState, config: Optional[Dict] = None) -> StateUpdate:
+def merge_node(state: PublicOpinionState, config: Optional[RunnableConfig] = None) -> StateUpdate:
     """
     Merge node: Combine all results into unified analysis.
     

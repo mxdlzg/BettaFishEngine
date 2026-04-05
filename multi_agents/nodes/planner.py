@@ -5,7 +5,8 @@ Planner node for the LangGraph public opinion workflow.
 Generates an analysis plan based on the user's query.
 """
 
-from typing import Dict, Any, Optional
+from typing import Any, Optional
+from langchain_core.runnables import RunnableConfig
 
 from multi_agents.state import PublicOpinionState, StateUpdate
 from multi_agents.tools.progress import add_progress, Stage
@@ -16,7 +17,7 @@ from multi_agents.prompts.planner import build_planner_messages
 logger = get_logger("planner")
 
 
-def planner_node(state: PublicOpinionState, config: Optional[Dict] = None) -> StateUpdate:
+def planner_node(state: PublicOpinionState, config: Optional[RunnableConfig] = None) -> StateUpdate:
     """
     Planner node: Generate analysis plan.
     

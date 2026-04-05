@@ -5,7 +5,8 @@ Forum Round 1 node for the LangGraph public opinion workflow.
 First round of multi-source analysis synthesis.
 """
 
-from typing import Dict, Any, Optional
+from typing import Any, Optional
+from langchain_core.runnables import RunnableConfig
 
 from multi_agents.state import PublicOpinionState, StateUpdate
 from multi_agents.tools.progress import add_progress, Stage
@@ -16,7 +17,7 @@ from multi_agents.prompts.moderator import build_moderator_round_1_messages
 logger = get_logger("forum_round_1")
 
 
-def forum_round_1_node(state: PublicOpinionState, config: Optional[Dict] = None) -> StateUpdate:
+def forum_round_1_node(state: PublicOpinionState, config: Optional[RunnableConfig] = None) -> StateUpdate:
     """
     Forum Round 1 node: First synthesis discussion.
     

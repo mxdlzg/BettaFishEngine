@@ -280,3 +280,62 @@ def cleanup_old_tasks(base_dir: Optional[Path] = None, max_age_days: int = 7) ->
                     logger.error(f"Failed to remove {task_dir}: {e}")
     
     return removed
+
+
+# ==== Test helper functions ====
+
+def add_file_to_state(
+    state: Dict[str, Any],
+    name: str,
+    path: str,
+    media_type: str
+) -> Dict[str, Any]:
+    """
+    Add a file entry to state.files.
+    
+    Args:
+        state: Current state
+        name: File name
+        path: File path
+        media_type: MIME type
+    
+    Returns:
+        Updated state
+    """
+    files = dict(state.get("files", {}))
+    files[name] = {
+        "name": name,
+        "path": path,
+        "mediaType": media_type,
+        "created_at": datetime.now().isoformat(),
+    }
+    return {**state, "files": files}
+
+
+def build_public_url(
+    filename: str,
+    task_id: str = "",
+    base_url: str = ""
+) -> str:
+    """
+    Build a public URL for a file.
+    
+    Args:
+        filename: File name
+        task_id: Task ID (optional)
+        base_url: Base URL (defaults to settings)
+    
+    Returns:
+        Public URL
+    """
+    if not base_url:
+        settings = get_settings()
+        base_url = settings.public_report_base_url
+    
+    base_url = base_url.rstrip("/")
+    
+    if task_id:
+        return f"{base_url}/{task_dir_name(task_id)}/{filename}"
+    return f"{base_url}/{filename}"
+    
+    return removed

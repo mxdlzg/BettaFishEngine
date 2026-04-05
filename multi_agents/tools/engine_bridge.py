@@ -450,6 +450,53 @@ class EngineBridge:
                 return name
         
         return "网络"
+    
+    def _normalize_output(self, raw_output: Any) -> Dict[str, Any]:
+        """
+        Normalize any output format to a standard dict.
+        
+        Args:
+            raw_output: Raw output from engine (dict, str, or None)
+        
+        Returns:
+            Normalized dict with 'content' and 'metadata' keys
+        """
+        if raw_output is None or raw_output == "":
+            return {"content": "", "metadata": {"format": "empty"}}
+        
+        if isinstance(raw_output, dict):
+            content = raw_output.get("report_content") or raw_output.get("content") or str(raw_output)
+            return {
+                "content": content,
+                "metadata": {
+                    "format": "dict",
+                    "keys": list(raw_output.keys())
+                }
+            }
+        
+        if isinstance(raw_output, str):
+            return {
+                "content": raw_output,
+                "metadata": {"format": "text"}
+            }
+        
+        return {
+            "content": str(raw_output),
+            "metadata": {"format": "unknown"}
+        }
+    
+    def _is_valid_engine(self, engine_name: str) -> bool:
+        """
+        Check if an engine name is valid.
+        
+        Args:
+            engine_name: Name of the engine
+        
+        Returns:
+            True if valid, False otherwise
+        """
+        valid_engines = {"query", "media", "insight", "report", "forum"}
+        return engine_name.lower() in valid_engines
 
 
 # Global bridge instance

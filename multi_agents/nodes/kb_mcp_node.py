@@ -5,7 +5,8 @@ Knowledge Base MCP node for the LangGraph public opinion workflow.
 Queries ALB knowledge bases via MCP protocol.
 """
 
-from typing import Dict, Any, Optional, List
+from typing import Any, Optional, List, Dict
+from langchain_core.runnables import RunnableConfig
 
 from multi_agents.state import PublicOpinionState, StateUpdate
 from multi_agents.tools.progress import add_progress, Stage
@@ -18,7 +19,7 @@ from multi_agents.prompts.kb_selector import build_kb_selector_messages
 logger = get_logger("kb_mcp_node")
 
 
-def kb_mcp_node(state: PublicOpinionState, config: Optional[Dict] = None) -> StateUpdate:
+def kb_mcp_node(state: PublicOpinionState, config: Optional[RunnableConfig] = None) -> StateUpdate:
     """
     Knowledge Base MCP node: Query knowledge bases.
     

@@ -5,8 +5,9 @@ Intake node for the LangGraph public opinion workflow.
 Parses user input, initializes state, and prepares for analysis.
 """
 
-from typing import Dict, Any, Optional
+from typing import Any, Optional
 from langchain_core.messages import HumanMessage
+from langchain_core.runnables import RunnableConfig
 
 from multi_agents.state import PublicOpinionState, StateUpdate
 from multi_agents.tools.ids import generate_task_id
@@ -19,7 +20,7 @@ from multi_agents.prompts.intake import build_intake_messages
 logger = get_logger("intake")
 
 
-def intake_node(state: PublicOpinionState, config: Optional[Dict] = None) -> StateUpdate:
+def intake_node(state: PublicOpinionState, config: Optional[RunnableConfig] = None) -> StateUpdate:
     """
     Intake node: Parse user input and initialize state.
     

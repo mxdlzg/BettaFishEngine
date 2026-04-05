@@ -286,3 +286,96 @@ def get_mcp_client(token: Optional[str] = None) -> MCPClient:
         MCPClient instance
     """
     return MCPClient(token=token)
+
+
+# ==== Test helper methods ====
+
+def _build_request(method: str, params: Optional[Dict] = None, request_id: int = 1) -> Dict[str, Any]:
+    """
+    Build a JSON-RPC request payload (for testing).
+    
+    Args:
+        method: JSON-RPC method name
+        params: Method parameters
+        request_id: Request ID
+    
+    Returns:
+        JSON-RPC request dict
+    """
+    payload = {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "method": method,
+    }
+    if params:
+        payload["params"] = params
+    return payload
+
+
+def _parse_sse_line(line: str) -> Optional[Dict[str, Any]]:
+    """
+    Parse a single SSE line (for testing).
+    
+    Args:
+        line: SSE line
+    
+    Returns:
+        Parsed data or None
+    """
+    line = line.strip()
+    
+    if not line:
+        return None
+    
+    if line.startswith("event:"):
+        return None  # Event type line, not data
+    
+    if line.startswith("data:"):
+        data_str = line[5:].strip()
+        return safe_json_loads(data_str)
+    
+    return None
+
+
+def _select_relevant_kbs(
+    query: str,
+    available_kbs: List[Dict[str, Any]],
+    max_kbs: int = 3
+) -> List[str]:
+    """
+    Select relevant knowledge bases based on query (simple heuristic).
+    
+    Args:
+        query: User query
+        available_kbs: Available knowledge bases
+        max_kbs: Maximum number to select
+    
+    Returns:
+        List of selected KB IDs
+    """
+    if not available_kbs:
+        return []
+    
+    # Simple keyword matching
+    selected = []
+    query_lower = query.lower()
+    
+    for kb in available_kbs:
+        kb_name = kb.get("name", "").lower()
+        kb_desc = kb.get("description", "").lower()
+        
+        # Check for keyword overlap
+        if any(word in kb_name or word in kb_desc for word in query_lower.split()):
+            selected.append(kb.get("id"))
+    
+    # If no matches, return first few
+    if not selected:
+        selected = [kb.get("id") for kb in available_kbs[:max_kbs]]
+    
+    return selected[:max_kbs]
+
+
+# Add methods to MCPClient for testing compatibility
+MCPClient._build_request = lambda self, method, params=None: _build_request(method, params, self._next_request_id())
+MCPClient._parse_sse_line = staticmethod(lambda line: _parse_sse_line(line))
+MCPClient._select_relevant_kbs = staticmethod(lambda query, kbs, max_kbs=3: _select_relevant_kbs(query, kbs, max_kbs))

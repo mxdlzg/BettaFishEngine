@@ -79,14 +79,13 @@ class TestQueryEngineIntegration:
         from multi_agents.tools.engine_bridge import EngineBridge
         
         bridge = EngineBridge()
-        result = await bridge.run_engine(
-            "query",
+        result = bridge.run_query_engine(
             query="人工智能发展趋势",
-            task_id="test-001"
+            context={"task_id": "test-001"}
         )
         
-        assert "content" in result
-        assert len(result["content"]) > 0
+        assert "summary" in result
+        assert len(result.get("summary", "")) > 0
 
 
 class TestMediaEngineIntegration:
@@ -99,13 +98,12 @@ class TestMediaEngineIntegration:
         from multi_agents.tools.engine_bridge import EngineBridge
         
         bridge = EngineBridge()
-        result = await bridge.run_engine(
-            "media",
+        result = bridge.run_media_engine(
             query="人工智能图片分析",
-            task_id="test-002"
+            context={"task_id": "test-002"}
         )
         
-        assert "content" in result
+        assert "summary" in result
 
 
 class TestInsightEngineIntegration:
@@ -118,13 +116,12 @@ class TestInsightEngineIntegration:
         from multi_agents.tools.engine_bridge import EngineBridge
         
         bridge = EngineBridge()
-        result = await bridge.run_engine(
-            "insight",
+        result = bridge.run_insight_engine(
             query="人工智能情感分析",
-            task_id="test-003"
+            context={"task_id": "test-003"}
         )
         
-        assert "content" in result
+        assert "summary" in result
 
 
 if __name__ == "__main__":
