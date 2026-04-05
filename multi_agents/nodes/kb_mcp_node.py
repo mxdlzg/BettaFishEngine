@@ -111,23 +111,31 @@ def kb_mcp_node(state: PublicOpinionState, config: Optional[RunnableConfig] = No
             kb_name = kb.get("name", "")
             
             try:
-                result = mcp_client.query_knowledge_base(
+                result_list = mcp_client.query_knowledge_base(
                     kb_id=kb_id,
                     query=query,
                     mode="hybrid",
                     top_k=5
                 )
                 
+                # MCP client returns a list of results: [{"content": "...", "source": "..."}]
+                answer_text = ""
+                sources_list = []
+                if isinstance(result_list, list) and len(result_list) > 0:
+                    # Combine all content from results
+                    answer_text = "\n\n".join([r.get("content", "") for r in result_list if r.get("content")])
+                    sources_list = [{"text": r.get("content", "")[:500], "kb": kb_name} for r in result_list]
+                
                 answer = {
                     "knowledge_base_id": kb_id,
                     "knowledge_base_name": kb_name,
-                    "answer": result.get("answer", ""),
-                    "sources": result.get("sources", []),
-                    "citations": result.get("citations", []),
-                    "confidence": result.get("confidence", 0.0),
+                    "answer": answer_text,
+                    "sources": sources_list,
+                    "citations": [],
+                    "confidence": 0.8 if answer_text else 0.0,
                 }
                 answers.append(answer)
-                all_sources.extend(result.get("sources", []))
+                all_sources.extend(sources_list)
                 
             except MCPError as e:
                 logger.warning(f"[{task_id}] Failed to query KB {kb_id}: {e}")

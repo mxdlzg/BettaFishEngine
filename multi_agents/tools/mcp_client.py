@@ -7,8 +7,8 @@ Implements SSE-based communication with MCP service for knowledge base queries.
 
 import json
 import time
-from typing import Dict, Any, Optional, List, Generator
-import httpx
+from typing import Dict, Any, Optional, List
+import requests
 
 from multi_agents.settings import get_settings, Settings
 from multi_agents.tools.logger import get_logger
@@ -62,20 +62,21 @@ class MCPClient:
             "Content-Type": "application/json",
         }
     
-    def _parse_sse_events(self, response: httpx.Response) -> Generator[Dict[str, Any], None, None]:
+    def _parse_sse_events(self, text: str) -> List[Dict[str, Any]]:
         """
-        Parse SSE events from response stream.
+        Parse SSE events from response text.
         
         Args:
-            response: HTTP response with SSE stream
+            text: Response text with SSE events
         
-        Yields:
-            Parsed JSON event data
+        Returns:
+            List of parsed JSON event data
         """
+        events = []
         event_type = None
         data_lines = []
         
-        for line in response.iter_lines():
+        for line in text.split('\n'):
             line = line.strip()
             
             if line.startswith("event:"):
@@ -90,9 +91,11 @@ class MCPClient:
                 if data:
                     parsed = safe_json_loads(data)
                     if parsed:
-                        yield {"event": event_type, "data": parsed}
+                        events.append({"event": event_type, "data": parsed})
                 
                 event_type = None
+        
+        return events
     
     def _send_jsonrpc(self, method: str, params: Optional[Dict] = None) -> Dict[str, Any]:
         """
@@ -121,42 +124,47 @@ class MCPClient:
         logger.info(f"MCP request: method={method}, id={request_id}")
         
         try:
-            with httpx.Client(timeout=self.timeout_sec) as client:
-                response = client.post(
-                    self.base_url,
-                    headers=self._build_headers(),
-                    json=payload,
-                )
-                response.raise_for_status()
+            response = requests.post(
+                self.base_url,
+                headers=self._build_headers(),
+                json=payload,
+                timeout=self.timeout_sec
+            )
+            response.raise_for_status()
+            
+            # Parse SSE events
+            events = self._parse_sse_events(response.text)
+            
+            # Collect results
+            result_data = None
+            error_data = None
+            
+            for event in events:
+                event_data = event.get("data", {})
                 
-                # Collect all SSE events
-                result_data = None
-                error_data = None
+                # Check for result
+                if "result" in event_data:
+                    result_data = event_data["result"]
                 
-                for event in self._parse_sse_events(response):
-                    event_data = event.get("data", {})
-                    
-                    # Check for result
-                    if "result" in event_data:
-                        result_data = event_data["result"]
-                    
-                    # Check for error
-                    if "error" in event_data:
-                        error_data = event_data["error"]
+                # Check for error
+                if "error" in event_data:
+                    error_data = event_data["error"]
+            
+            if error_data:
+                raise MCPError(f"MCP error: {error_data}")
+            
+            if result_data is not None:
+                return result_data
+            
+            # If no result, return the last event data
+            if events:
+                return events[-1].get("data", {})
+            return {}
                 
-                if error_data:
-                    raise MCPError(f"MCP error: {error_data}")
-                
-                if result_data is not None:
-                    return result_data
-                
-                # If no result, return the last event data
-                return event_data if 'event_data' in dir() else {}
-                
-        except httpx.HTTPStatusError as e:
+        except requests.HTTPError as e:
             logger.error(f"MCP HTTP error: {e}")
-            raise MCPError(f"HTTP error: {e.response.status_code}")
-        except httpx.RequestError as e:
+            raise MCPError(f"HTTP error: {e.response.status_code if e.response else 'Unknown'}")
+        except requests.RequestException as e:
             logger.error(f"MCP request error: {e}")
             raise MCPError(f"Request error: {e}")
         except Exception as e:
@@ -215,20 +223,28 @@ class MCPClient:
             List of knowledge base info dicts
         """
         try:
-            # Try common tool names for listing KBs
-            for tool_name in ["list_knowledge_bases", "listKnowledgeBases", "kb_list"]:
-                try:
-                    result = self.call_tool(tool_name, {})
-                    if result:
-                        return result.get("knowledge_bases", result.get("kbs", []))
-                except MCPError:
-                    continue
+            # Call list_knowledge_bases tool
+            result = self.call_tool("list_knowledge_bases", {"includeStats": True})
             
-            # Fallback: check tools list for KB-related tools
-            tools = self.list_tools()
-            kb_tools = [t for t in tools if "knowledge" in t.get("name", "").lower() or "kb" in t.get("name", "").lower()]
-            logger.info(f"Found KB-related tools: {[t['name'] for t in kb_tools]}")
+            # Parse MCP response format: {content: [{type: "text", text: "..."}]}
+            if isinstance(result, dict) and "content" in result:
+                content = result["content"]
+                if isinstance(content, list) and len(content) > 0:
+                    first_item = content[0]
+                    if isinstance(first_item, dict) and "text" in first_item:
+                        text = first_item["text"]
+                        # Try to parse JSON from text
+                        import re
+                        # Find JSON array in text
+                        match = re.search(r'\[\s*\{.*\}\s*\]', text, re.DOTALL)
+                        if match:
+                            kbs = safe_json_loads(match.group(0))
+                            if isinstance(kbs, list):
+                                logger.info(f"Found {len(kbs)} knowledge bases")
+                                return kbs
             
+            logger.warning("Unexpected response format from list_knowledge_bases")
+            logger.debug(f"Result: {result}")
             return []
             
         except Exception as e:
@@ -241,34 +257,44 @@ class MCPClient:
         query: str,
         mode: str = "hybrid",
         top_k: int = 5
-    ) -> Dict[str, Any]:
+    ) -> List[Dict[str, Any]]:
         """
         Query a knowledge base.
         
         Args:
             kb_id: Knowledge base ID
             query: Query string
-            mode: Search mode (hybrid, semantic, keyword)
+            mode: Search mode (hybrid, local, global)
             top_k: Number of results to return
         
         Returns:
-            Query results
+            List of query results
         """
         try:
-            # Try common tool names for querying
-            for tool_name in ["query_knowledge_base", "queryKnowledgeBase", "kb_query", "search_kb"]:
-                try:
-                    result = self.call_tool(tool_name, {
-                        "knowledge_base_id": kb_id,
-                        "query": query,
-                        "mode": mode,
-                        "top_k": top_k
-                    })
-                    return result
-                except MCPError:
-                    continue
+            result = self.call_tool("query_knowledge_base", {
+                "knowledgeBaseId": kb_id,
+                "query": query,
+                "searchMode": mode,
+                "topK": top_k
+            })
             
-            return {"error": "No knowledge base query tool found"}
+            # Parse MCP response format: {content: [{type: "text", text: "..."}]}
+            if isinstance(result, dict) and "content" in result:
+                content = result["content"]
+                if isinstance(content, list) and len(content) > 0:
+                    first_item = content[0]
+                    if isinstance(first_item, dict) and "text" in first_item:
+                        text = first_item["text"]
+                        logger.info(f"KB query result: {len(text)} chars")
+                        # Return text content as a single result
+                        return [{"content": text, "source": kb_id}]
+            
+            logger.warning("Unexpected response format from query_knowledge_base")
+            return []
+            
+        except Exception as e:
+            logger.error(f"Failed to query knowledge base: {e}")
+            return []
             
         except Exception as e:
             logger.error(f"Failed to query knowledge base: {e}")
