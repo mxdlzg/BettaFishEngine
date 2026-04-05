@@ -7,7 +7,6 @@ Provides unified access to OpenAI-compatible model services.
 
 import time
 from typing import List, Dict, Any, Optional
-from openai import OpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from multi_agents.settings import get_settings, Settings
@@ -33,11 +32,8 @@ class LLMClient:
             settings: Settings instance, or None to use global settings
         """
         self.settings = settings or get_settings()
-        self.client = OpenAI(
-            api_key=self.settings.openai_api_key,
-            base_url=self.settings.openai_base_url,
-            timeout=self.settings.request_timeout_sec
-        )
+        self.base_url = self.settings.openai_base_url
+        self.api_key = self.settings.openai_api_key
         self._available_models: Optional[List[str]] = None
     
     def list_models(self) -> List[str]:
@@ -48,9 +44,16 @@ class LLMClient:
             List of model IDs
         """
         if self._available_models is None:
+            import requests
             try:
-                response = self.client.models.list()
-                self._available_models = [m.id for m in response.data]
+                response = requests.get(
+                    f"{self.base_url}/models",
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                    timeout=30
+                )
+                response.raise_for_status()
+                data = response.json()
+                self._available_models = [m["id"] for m in data.get("data", [])]
                 logger.info(f"Available models: {self._available_models}")
             except Exception as e:
                 logger.error(f"Failed to list models: {e}")
@@ -114,6 +117,8 @@ class LLMClient:
         Returns:
             The assistant's response content
         """
+        import requests
+        
         if model is None:
             model = self._get_model(role)
         
@@ -121,15 +126,35 @@ class LLMClient:
         logger.info(f"Calling LLM: model={model}, role={role}, messages={len(messages)}")
         
         try:
-            response = self.client.chat.completions.create(
-                model=model,
-                messages=messages,
-                temperature=temperature,
-                max_tokens=max_tokens,
+            payload = {
+                "model": model,
+                "messages": messages,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
                 **kwargs
-            )
+            }
             
-            content = response.choices[0].message.content or ""
+            response = requests.post(
+                f"{self.base_url}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.api_key}",
+                    "Content-Type": "application/json"
+                },
+                json=payload,
+                timeout=self.settings.request_timeout_sec
+            )
+            response.raise_for_status()
+            data = response.json()
+            
+            # Handle both standard and reasoning model responses
+            message = data["choices"][0]["message"]
+            content = message.get("content") or ""
+            
+            # If content is empty but reasoning exists, use reasoning
+            if not content and "reasoning" in message and message["reasoning"]:
+                content = message["reasoning"]
+                logger.debug("Using reasoning field as response content")
+            
             duration = time.time() - start_time
             logger.info(f"LLM response received in {duration:.2f}s, {len(content)} chars")
             

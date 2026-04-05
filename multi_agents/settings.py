@@ -11,6 +11,10 @@ from pathlib import Path
 from typing import Optional
 import os
 
+# Load .env file
+from dotenv import load_dotenv
+load_dotenv()
+
 
 @dataclass
 class Settings:

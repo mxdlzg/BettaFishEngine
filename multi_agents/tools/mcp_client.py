@@ -58,7 +58,7 @@ class MCPClient:
         """Build request headers with authentication."""
         return {
             "Authorization": f"Bearer {self.token}",
-            "Accept": "text/event-stream",
+            "Accept": "application/json, text/event-stream",
             "Content-Type": "application/json",
         }
     
