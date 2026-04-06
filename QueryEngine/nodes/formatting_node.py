@@ -93,7 +93,7 @@ class ReportFormattingNode(BaseNode):
             output: LLM原始输出
             
         Returns:
-            清理后的Markdown报告
+            清理后的Markdown报告（带目录）
         """
         try:
             # 清理响应文本 - 使用专门的报告清理函数
@@ -108,11 +108,84 @@ class ReportFormattingNode(BaseNode):
             if not cleaned_output.strip().startswith('#'):
                 cleaned_output = "# 深度研究报告\n\n" + cleaned_output
             
+            # 添加目录
+            cleaned_output = self._add_table_of_contents(cleaned_output)
+            
             return cleaned_output.strip()
             
         except Exception as e:
             logger.exception(f"处理输出失败: {str(e)}")
             return "# 报告处理失败\n\n报告格式化过程中发生错误。"
+    
+    def _add_table_of_contents(self, markdown_text: str) -> str:
+        """
+        为Markdown报告添加目录
+        
+        Args:
+            markdown_text: Markdown格式的报告
+            
+        Returns:
+            添加了目录的报告
+        """
+        import re
+        
+        lines = markdown_text.split('\n')
+        headings = []
+        
+        # 提取所有标题（h2-h4，跳过h1作为报告标题）
+        for i, line in enumerate(lines):
+            stripped = line.strip()
+            if stripped.startswith('## ') and not stripped.startswith('### '):
+                # 二级标题
+                title = stripped[3:].strip()
+                headings.append((2, title, i))
+            elif stripped.startswith('### ') and not stripped.startswith('#### '):
+                # 三级标题
+                title = stripped[4:].strip()
+                headings.append((3, title, i))
+            elif stripped.startswith('#### '):
+                # 四级标题
+                title = stripped[5:].strip()
+                headings.append((4, title, i))
+        
+        # 如果没有标题，不添加目录
+        if not headings:
+            return markdown_text
+        
+        # 生成目录
+        toc_lines = [
+            "",
+            "## 目录",
+            ""
+        ]
+        
+        for level, title, _ in headings:
+            # 生成锚点链接（移除特殊字符，转小写）
+            anchor = re.sub(r'[^\w\u4e00-\u9fff\s-]', '', title)
+            anchor = anchor.replace(' ', '-').lower()
+            
+            # 根据级别添加缩进
+            indent = '  ' * (level - 2)
+            toc_lines.append(f"{indent}- [{title}](#{anchor})")
+        
+        toc_lines.append("")
+        toc_lines.append("---")
+        toc_lines.append("")
+        
+        # 找到第一个h1标题后的位置插入目录
+        insert_pos = 0
+        for i, line in enumerate(lines):
+            if line.strip().startswith('# '):
+                # 在标题后面找到第一个非空行的位置
+                insert_pos = i + 1
+                while insert_pos < len(lines) and not lines[insert_pos].strip():
+                    insert_pos += 1
+                break
+        
+        # 插入目录
+        lines = lines[:insert_pos] + toc_lines + lines[insert_pos:]
+        
+        return '\n'.join(lines)
     
     def format_report_manually(self, paragraphs_data: List[Dict[str, str]], 
                              report_title: str = "深度研究报告") -> str:
