@@ -356,3 +356,5 @@ CLAUDE.md
 findings.md
 progress.md
 task_plan.md
+test_*.log
+test_*.py
