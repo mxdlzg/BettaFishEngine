@@ -431,27 +431,34 @@ class DeepSearchAgent:
     def _save_report(self, report_content: str, export_formats: List[str] = None):
         """
         保存报告到文件，支持多种格式导出
+        每个任务的报告保存到独立文件夹中
         
         Args:
             report_content: 报告Markdown内容
             export_formats: 要导出的格式列表，支持 ['md', 'html', 'pdf', 'docx']
         """
-        # 生成文件名
+        import uuid
+        
+        # 生成任务ID和时间戳
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        task_id = uuid.uuid4().hex[:8]
         query_safe = "".join(c for c in self.state.query if c.isalnum() or c in (' ', '-', '_')).rstrip()
         query_safe = query_safe.replace(' ', '_')[:30]
         
-        base_filename = f"deep_search_report_{query_safe}_{timestamp}"
+        # 创建任务专属文件夹
+        task_folder_name = f"task_{query_safe}_{timestamp}_{task_id}"
+        task_folder = os.path.join(self.config.OUTPUT_DIR, task_folder_name)
+        os.makedirs(task_folder, exist_ok=True)
         
         # 默认导出格式
         if export_formats is None:
-            export_formats = ['md']  # 默认只导出Markdown
+            export_formats = ['md', 'html']  # 默认导出Markdown和HTML
         
         saved_files = {}
         
         # 保存Markdown
         if 'md' in export_formats:
-            md_filepath = os.path.join(self.config.OUTPUT_DIR, f"{base_filename}.md")
+            md_filepath = os.path.join(task_folder, "report.md")
             with open(md_filepath, 'w', encoding='utf-8') as f:
                 f.write(report_content)
             saved_files['md'] = md_filepath
@@ -461,7 +468,7 @@ class DeepSearchAgent:
         if 'html' in export_formats:
             try:
                 html_content = self._convert_to_html(report_content)
-                html_filepath = os.path.join(self.config.OUTPUT_DIR, f"{base_filename}.html")
+                html_filepath = os.path.join(task_folder, "report.html")
                 with open(html_filepath, 'w', encoding='utf-8') as f:
                     f.write(html_content)
                 saved_files['html'] = html_filepath
@@ -472,7 +479,7 @@ class DeepSearchAgent:
         # 导出PDF
         if 'pdf' in export_formats:
             try:
-                pdf_filepath = os.path.join(self.config.OUTPUT_DIR, f"{base_filename}.pdf")
+                pdf_filepath = os.path.join(task_folder, "report.pdf")
                 self._convert_to_pdf(report_content, pdf_filepath)
                 saved_files['pdf'] = pdf_filepath
                 logger.info(f"PDF报告已保存到: {pdf_filepath}")
@@ -482,7 +489,7 @@ class DeepSearchAgent:
         # 导出DOCX
         if 'docx' in export_formats:
             try:
-                docx_filepath = os.path.join(self.config.OUTPUT_DIR, f"{base_filename}.docx")
+                docx_filepath = os.path.join(task_folder, "report.docx")
                 self._convert_to_docx(report_content, docx_filepath)
                 saved_files['docx'] = docx_filepath
                 logger.info(f"Word报告已保存到: {docx_filepath}")
@@ -491,11 +498,23 @@ class DeepSearchAgent:
         
         # 保存状态（如果配置允许）
         if self.config.SAVE_INTERMEDIATE_STATES:
-            state_filename = f"state_{query_safe}_{timestamp}.json"
-            state_filepath = os.path.join(self.config.OUTPUT_DIR, state_filename)
+            state_filepath = os.path.join(task_folder, "state.json")
             self.state.save_to_file(state_filepath)
             logger.info(f"状态已保存到: {state_filepath}")
         
+        # 保存任务清单manifest
+        manifest = {
+            "task_id": task_id,
+            "query": self.state.query,
+            "timestamp": timestamp,
+            "files": saved_files,
+            "folder": task_folder
+        }
+        manifest_path = os.path.join(task_folder, "manifest.json")
+        with open(manifest_path, 'w', encoding='utf-8') as f:
+            json.dump(manifest, f, ensure_ascii=False, indent=2)
+        
+        logger.info(f"任务报告已保存到文件夹: {task_folder}")
         return saved_files
     
     def _convert_to_html(self, markdown_content: str) -> str:
