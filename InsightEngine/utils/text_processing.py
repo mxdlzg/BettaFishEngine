@@ -47,7 +47,8 @@ def clean_markdown_tags(text: str) -> str:
 
 def remove_reasoning_from_output(text: str) -> str:
     """
-    移除输出中的推理过程文本
+    移除输出中的推理过程文本（增强版）
+    专门处理reasoning模型输出的复杂思维过程
     
     Args:
         text: 原始文本
@@ -55,31 +56,107 @@ def remove_reasoning_from_output(text: str) -> str:
     Returns:
         清理后的文本
     """
-    # 查找JSON开始位置
-    json_start = -1
+    if not text:
+        return ""
     
-    # 尝试找到第一个 { 或 [
-    for i, char in enumerate(text):
-        if char in '{[':
-            json_start = i
-            break
+    # 首先尝试找到最终的JSON输出
+    # reasoning模型通常会在思维过程后输出最终的JSON
     
-    if json_start != -1:
-        # 从JSON开始位置截取
-        return text[json_start:].strip()
+    # 方法1: 找最后一个完整的JSON对象或数组
+    json_blocks = []
+    brace_count = 0
+    bracket_count = 0
+    current_block = ""
+    in_json = False
     
-    # 如果没有找到JSON标记，尝试其他方法
-    # 移除常见的推理标识
-    patterns = [
-        r'(?:reasoning|推理|思考|分析)[:：]\s*.*?(?=\{|\[)',  # 移除推理部分
-        r'(?:explanation|解释|说明)[:：]\s*.*?(?=\{|\[)',   # 移除解释部分
-        r'^.*?(?=\{|\[)',  # 移除JSON前的所有文本
+    for char in text:
+        if char == '{':
+            if not in_json:
+                in_json = True
+                current_block = ""
+            brace_count += 1
+            current_block += char
+        elif char == '[' and not in_json:
+            in_json = True
+            bracket_count += 1
+            current_block = char
+        elif char == ']' and in_json and bracket_count > 0:
+            bracket_count -= 1
+            current_block += char
+            if bracket_count == 0 and brace_count == 0:
+                json_blocks.append(current_block)
+                current_block = ""
+                in_json = False
+        elif char == '}':
+            brace_count -= 1
+            current_block += char
+            if brace_count == 0 and bracket_count == 0:
+                json_blocks.append(current_block)
+                current_block = ""
+                in_json = False
+        elif in_json:
+            current_block += char
+    
+    # 如果找到了JSON块，返回最后一个（通常是最终答案）
+    if json_blocks:
+        # 验证最后一个块是否是有效JSON
+        for block in reversed(json_blocks):
+            try:
+                json.loads(block)
+                return block
+            except:
+                continue
+        # 如果都无效，返回最后一个块尝试修复
+        return json_blocks[-1]
+    
+    # 方法2: 查找明确的JSON标记
+    # 查找 ```json 块
+    json_block_match = re.search(r'```json\s*([\s\S]*?)\s*```', text)
+    if json_block_match:
+        return json_block_match.group(1).strip()
+    
+    # 方法3: 移除已知的思维过程标记
+    thinking_markers = [
+        r'\*\*Plan:\*\*.*?(?=\{|\[|$)',
+        r'\*\*Drafting.*?\*\*.*?(?=\{|\[|$)',
+        r'\*\*Execution.*?\*\*.*?(?=\{|\[|$)',
+        r'\*Wait,.*?(?=\{|\[|$)',
+        r'\*Actually,.*?(?=\{|\[|$)',
+        r'Thinking Process:.*?(?=\{|\[|$)',
+        r'Self-Correction.*?(?=\{|\[|$)',
+        r'\*Decision:.*?(?=\{|\[|$)',
+        r'\*Final.*?(?=\{|\[|$)',
+        r'Looking at.*?(?=\{|\[|$)',
+        r'I need to.*?(?=\{|\[|$)',
+        r'Let me.*?(?=\{|\[|$)',
     ]
     
-    for pattern in patterns:
-        text = re.sub(pattern, '', text, flags=re.IGNORECASE | re.DOTALL)
+    cleaned = text
+    for pattern in thinking_markers:
+        cleaned = re.sub(pattern, '', cleaned, flags=re.IGNORECASE | re.DOTALL)
     
-    return text.strip()
+    # 方法4: 查找JSON开始位置
+    json_start = -1
+    for i, char in enumerate(cleaned):
+        if char in '{[':
+            # 检查这是否像是实际的JSON开始（不是思维过程中的括号）
+            # 通过检查后续内容是否有JSON结构特征
+            remaining = cleaned[i:]
+            if re.match(r'^\s*[\{\[][\s\S]*[\}\]]\s*$', remaining[:min(200, len(remaining))]):
+                json_start = i
+                break
+            elif char == '{' and '"' in remaining[:50]:
+                json_start = i
+                break
+            elif char == '[' and '{' in remaining[:50]:
+                json_start = i
+                break
+    
+    if json_start != -1:
+        return cleaned[json_start:].strip()
+    
+    # 如果所有方法都失败，返回清理后的文本
+    return cleaned.strip()
 
 
 def extract_clean_response(text: str) -> Dict[str, Any]:

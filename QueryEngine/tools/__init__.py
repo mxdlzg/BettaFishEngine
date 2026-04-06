@@ -3,18 +3,16 @@
 提供外部工具接口，如网络搜索等
 """
 
-from .search import (
-    TavilyNewsAgency, 
+from .duckduckgo_search import (
+    DuckDuckGoNewsAgency, 
     SearchResult, 
-    TavilyResponse, 
-    ImageResult,
-    print_response_summary
+    DuckDuckGoResponse, 
+    ImageResult
 )
 
 __all__ = [
-    "TavilyNewsAgency", 
+    "DuckDuckGoNewsAgency", 
     "SearchResult", 
-    "TavilyResponse", 
-    "ImageResult",
-    "print_response_summary"
+    "DuckDuckGoResponse", 
+    "ImageResult"
 ]

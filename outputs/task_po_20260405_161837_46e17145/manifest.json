@@ -1,0 +1,26 @@
+{
+  "task_id": "po_20260405_161837_46e17145",
+  "query": "分析巴以冲突的最新舆情态势",
+  "timestamp": "2026-04-05T18:13:24.445736",
+  "selected_knowledge_bases": [],
+  "models_used": {
+    "planner": "alb_model_2601",
+    "analysis": "alb_model_2601",
+    "moderator": "alb_model_2601",
+    "report": "alb_model_2601_35b"
+  },
+  "files": [
+    "outputs\\task_po_20260405_161837_46e17145\\report.html",
+    "outputs\\task_po_20260405_161837_46e17145\\report.md",
+    "outputs\\task_po_20260405_161837_46e17145\\answer.md"
+  ],
+  "stats": {
+    "query_sources": 0,
+    "media_sources": 0,
+    "insight_sources": 0,
+    "kb_answers": 0,
+    "total_sources": 0
+  },
+  "duration_seconds": 28.514171838760376,
+  "status": "completed"
+}

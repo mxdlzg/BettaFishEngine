@@ -97,4 +97,5 @@ langchain-core>=0.2.0
 langchain-openai>=0.1.0
 
 # ===== DuckDuckGo Search (Free Retriever) =====
-duckduckgo-search>=6.0.0
+# 注意: duckduckgo-search包已更名为ddgs
+ddgs>=9.0.0

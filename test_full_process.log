@@ -1,0 +1,117 @@
+2026-04-05 21:55:12.158 | INFO     | QueryEngine.agent:__init__:46 - 使用搜索工具: DuckDuckGoNewsAgency
+2026-04-05 21:55:12.159 | INFO     | QueryEngine.agent:__init__:57 - Query Agent已初始化
+2026-04-05 21:55:12.159 | INFO     | QueryEngine.agent:__init__:58 - 使用LLM: {'provider': 'alb_model_2601', 'model': 'alb_model_2601', 'api_base': 'http://192.168.195.195:18011/v1'}
+2026-04-05 21:55:12.159 | INFO     | QueryEngine.agent:__init__:59 - 搜索工具集: DuckDuckGoNewsAgency (支持6种搜索工具)
+2026-04-05 21:55:12.159 | INFO     | QueryEngine.agent:__init__:46 - 使用搜索工具: DuckDuckGoNewsAgency
+2026-04-05 21:55:12.159 | INFO     | QueryEngine.agent:__init__:57 - Query Agent已初始化
+2026-04-05 21:55:12.159 | INFO     | QueryEngine.agent:__init__:58 - 使用LLM: {'provider': 'alb_model_2601', 'model': 'alb_model_2601', 'api_base': 'http://192.168.195.195:18011/v1'}
+2026-04-05 21:55:12.159 | INFO     | QueryEngine.agent:__init__:59 - 搜索工具集: DuckDuckGoNewsAgency (支持6种搜索工具)
+2026-04-05 21:55:12.159 | INFO     | QueryEngine.agent:research:154 - 
+============================================================
+2026-04-05 21:55:12.159 | INFO     | QueryEngine.agent:research:155 - 开始深度研究: 分析2026年巴以冲突最新舆情态势
+2026-04-05 21:55:12.159 | INFO     | QueryEngine.agent:research:156 - ============================================================
+2026-04-05 21:55:12.159 | INFO     | QueryEngine.agent:_generate_report_structure:186 - 
+[步骤 1] 生成报告结构...
+2026-04-05 21:55:12.159 | INFO     | QueryEngine.nodes.report_structure_node:run:52 - 正在为查询生成报告结构: 分析2026年巴以冲突最新舆情态势
+2026-04-05 21:55:25.459 | INFO     | QueryEngine.nodes.report_structure_node:process_output:83 - 清理后的输出: [
+  {
+    "title": "巴以冲突背景与当前局势概述",
+    "content": "分析2026年4月关键时间点前冲突的爆发原因、停火协议执行情况及近期军事动态"
+  },
+  {
+    "title": "巴以双方最新行动与立场分析",
+    "content": "梳理以色列国防军与哈马斯等组织的战术调整、政治表态及人道主义措施"
+  },
+  {
+    "title": "国际舆论焦点与媒体报道倾向",
+    "content": "比较主流媒体对冲突事件的叙事差异、社交媒体传播趋势及关键议题设置"
+  },
+  {
+    "title": "国际社会反应与外交互动",
+    "content": "评估联合国、阿盟及大国在2026年4月期间的调停进展、制裁措施与援助政策"
+  },
+  {
+    "title": "未来走向预测与风险预警",
+    "content": "基于当前态势推演短期局势演变可能性，识别潜在冲突升级或对话突破的触发点"
+  }
+]
+2026-04-05 21:55:25.459 | INFO     | QueryEngine.nodes.report_structure_node:process_output:88 - JSON解析成功
+2026-04-05 21:55:25.459 | INFO     | QueryEngine.nodes.report_structure_node:process_output:142 - 成功验证 5 个段落结构
+2026-04-05 21:55:25.459 | INFO     | QueryEngine.nodes.report_structure_node:run:60 - 成功生成 5 个段落结构
+2026-04-05 21:55:25.459 | INFO     | QueryEngine.nodes.report_structure_node:mutate_state:199 - 已将 5 个段落添加到状态中
+2026-04-05 21:55:25.459 | INFO     | QueryEngine.agent:_generate_report_structure:197 - 报告结构已生成，共 5 个段落:
+  1. 巴以冲突背景与当前局势概述
+  2. 巴以双方最新行动与立场分析
+  3. 国际舆论焦点与媒体报道倾向
+  4. 国际社会反应与外交互动
+  5. 未来走向预测与风险预警
+2026-04-05 21:55:25.459 | INFO     | QueryEngine.agent:_process_paragraphs:204 - 
+[步骤 2.1] 处理段落: 巴以冲突背景与当前局势概述
+2026-04-05 21:55:25.459 | INFO     | QueryEngine.agent:_process_paragraphs:205 - --------------------------------------------------
+2026-04-05 21:55:25.459 | INFO     | QueryEngine.agent:_initial_search_and_summary:230 -   - 生成搜索查询...
+2026-04-05 21:55:25.459 | INFO     | QueryEngine.nodes.search_node:run:66 - 正在生成首次搜索查询
+2026-04-05 21:55:33.213 | INFO     | QueryEngine.nodes.search_node:process_output:97 - 清理后的输出: {
+  "search_query": "2026年4月巴以冲突 停火协议执行 军事动态",
+  "search_tool": "search_news_last_week",
+  "reasoning": "需要分析2026年4月冲突背景及最新军事动态，使用本周新闻工具可获取近期停火协议执行情况和军事行动的最新报道，确保信息时效性与全面性",
+  "start_date": "2026-03-29",
+  "end_date": "2026-04-05"
+}
+2026-04-05 21:55:33.213 | INFO     | QueryEngine.nodes.search_node:process_output:102 - JSON解析成功
+2026-04-05 21:55:33.213 | INFO     | QueryEngine.nodes.search_node:run:74 - 生成搜索查询: 2026年4月巴以冲突 停火协议执行 军事动态
+2026-04-05 21:55:33.213 | INFO     | QueryEngine.agent:_initial_search_and_summary:236 -   - 搜索查询: 2026年4月巴以冲突 停火协议执行 军事动态
+2026-04-05 21:55:33.213 | INFO     | QueryEngine.agent:_initial_search_and_summary:237 -   - 选择的工具: basic_search_news
+2026-04-05 21:55:33.213 | INFO     | QueryEngine.agent:_initial_search_and_summary:238 -   - 推理: 需要分析2026年4月冲突背景及最新军事动态，使用本周新闻工具可获取近期停火协议执行情况和军事行动的最新报道，确保信息时效性与全面性
+2026-04-05 21:55:33.213 | INFO     | QueryEngine.agent:_initial_search_and_summary:241 -   - 执行网络搜索...
+2026-04-05 21:55:33.213 | INFO     | QueryEngine.agent:execute_search_tool:120 -   → 执行搜索工具: basic_search_news
+2026-04-05 21:55:37.036 | INFO     | QueryEngine.agent:_initial_search_and_summary:285 -   - 找到 7 个搜索结果
+    1. 2025年9月加沙战争停火协议 - 维基百科，自由的百科全书...
+    2. 2025年1月加沙战争停火协议 - 维基百科，自由的百科全书...
+    3. 加沙停火协议达成...
+    4. 加沙战争: 以色列哈马斯接受第一阶段和平计划，72小时内释放全部在世以方人质 - BBC News ...
+    5. 加沙戰爭: 以色列哈馬斯接受第一階段和平計劃，72小時內釋放全部在世以方人質 - BBC News ...
+    6. 加沙暫時停火後，未來會發生什麼？ - BBC News 中文...
+    7. 2026年4月1日外交部发言人毛宁主持例行记者会_中华人民共和国常驻联合国代表团...
+2026-04-05 21:55:37.036 | INFO     | QueryEngine.agent:_initial_search_and_summary:292 -   - 生成初始总结...
+2026-04-05 21:55:37.037 | DEBUG    | utils.forum_reader:get_latest_host_speech:25 - forum.log文件不存在
+2026-04-05 21:55:37.037 | INFO     | QueryEngine.nodes.summary_node:run:100 - 正在生成首次段落总结
+2026-04-05 21:56:05.954 | INFO     | QueryEngine.nodes.summary_node:process_output:134 - 清理后的输出: {
+  "paragraph_latest_state": "## 核心事件概述\n截至2026年4月初，加沙冲突停火协议进入关键执行期。根据联合国秘书长古特雷斯4月1日声明，停火协议\"脆弱且屡遭破坏\"，加沙卫生部数据显示停火生效前50天内以色列军队造成357名巴勒斯坦人死亡，至3月12日死亡人数升至360人并伴随922人受伤。以色列总理内塔尼亚胡3月17日公开确认\"第一阶段协议基本完成\"，但第二阶段非军事化谈判仍陷僵局。停火协议始于2025年10月9日特朗普政府提出的20点方案，哈马斯释放20名以色列人质后以色列撤军至约定线，但后续治理权归属等问题持续引发争议。\n\n## 多方报道分析\n多方媒体对停火执行呈现显著分歧：BBC引用消息人士称协议包含释放近2000名巴勒斯坦囚犯条款；阿拉伯媒体侧重报道加沙重建进展；美国《纽约时报》强调谈判因第2728号决议出现波折，该决议3月26日因美国弃权通过但未获以色列支持。中国外交部4月4日与巴基斯坦联合发布\"五点倡议\"，提出恢复海湾稳定的具体方案，区别于美国主导的停火框架。埃及与阿联酋斡旋力量在多哈举行3轮会谈，推动增加囚犯交换规模。\n\n## 关键数据提取\n- 时间线：2025年10月9日达成协议→2026年1月14日第二阶段启动→3月18日重启谈判→4月5日停火脆弱性评估\n- 伤亡数据：第一阶段死亡360人/922伤者，617具遗体被确认\n- 谈判进展：哈马斯3月18日放弃永久停火要求，仅聚焦阶段性方案\n- 国际参与：美国、埃及、阿联酋、中国、卡塔尔等多方斡旋\n\n## 深度背景分析\n停火协议执行困境源于多重结构性矛盾。领土争端未解导致治理权成为核心争议，加沙技术官僚治理方案遭哈马斯抵制。以色列安全部门3月21日报告显示，停火期间边境仍有12起越境袭击事件。国际刑事法院4月2日就战争罪调查发出新传唤，加剧以色列军事行动阻力。经济层面，加沙重建资金缺口达38亿美元，世界银行3月报告指出基础设施损毁率达72%。\n\n## 发展趋势判断\n短期停火维持概率较低。哈马斯3月谈判代表坦言\"生存优先于政治解决\"，以色列反对党领袖贝尔纳尔4月1日公开批评政府\"过度让步\"。长期看，美国新政府中东政策调整将影响协议走向，特朗普4月3日表示可能重新评估20点方案。若5月前未能突破治理权僵局，冲突可能升级为地区性危机，埃及-约旦边境已出现3万余难民潮。国际社会4月15日将召开紧急中东峰会，关键决议或重塑区域秩序。"
+}
+2026-04-05 21:56:05.955 | INFO     | QueryEngine.nodes.summary_node:process_output:139 - JSON解析成功
+2026-04-05 21:56:05.955 | INFO     | QueryEngine.nodes.summary_node:run:111 - 成功生成首次段落总结
+2026-04-05 21:56:05.955 | INFO     | QueryEngine.nodes.summary_node:mutate_state:190 - 已更新段落 0 的首次总结
+2026-04-05 21:56:05.955 | INFO     | QueryEngine.agent:_initial_search_and_summary:307 -   - 初始总结完成
+2026-04-05 21:56:05.955 | INFO     | QueryEngine.agent:_reflection_loop:314 -   - 反思 1/3...
+2026-04-05 21:56:05.955 | INFO     | QueryEngine.nodes.search_node:run:201 - 正在进行反思并生成新搜索查询
+2026-04-05 21:56:25.949 | INFO     | QueryEngine.nodes.search_node:process_output:232 - 清理后的输出: {
+  "search_query": "巴以停火协议2025年10月协议执行 特朗普20点方案 治理权谈判进展 2026年4月最新",
+  "search_tool": "search_news_by_date",
+  "reasoning": "需验证协议关键时间点、特朗普政府方案细节及最新谈判进展。选择按日期搜索（2025-10-01至2026-04-05）覆盖协议签署至当前时段，重点核查：1）协议签署后实际执行差异 2）美国新政府中东政策调整 3）治理权争议核心矛盾 4）国际社会干预效力",
+  "start_date": "2025-10-01",
+  "end_date": "2026-04-05"
+}
+2026-04-05 21:56:25.949 | INFO     | QueryEngine.nodes.search_node:process_output:237 - JSON解析成功
+2026-04-05 21:56:25.949 | INFO     | QueryEngine.nodes.search_node:run:209 - 反思生成搜索查询: 巴以停火协议2025年10月协议执行 特朗普20点方案 治理权谈判进展 2026年4月最新
+2026-04-05 21:56:25.949 | INFO     | QueryEngine.agent:_reflection_loop:329 -     反思查询: 巴以停火协议2025年10月协议执行 特朗普20点方案 治理权谈判进展 2026年4月最新
+2026-04-05 21:56:25.949 | INFO     | QueryEngine.agent:_reflection_loop:330 -     选择的工具: basic_search_news
+2026-04-05 21:56:25.949 | INFO     | QueryEngine.agent:_reflection_loop:331 -     反思推理: 需验证协议关键时间点、特朗普政府方案细节及最新谈判进展。选择按日期搜索（2025-10-01至2026-04-05）覆盖协议签署至当前时段，重点核查：1）协议签署后实际执行差异 2）美国新政府中东政策调整 3）治理权争议核心矛盾 4）国际社会干预效力
+2026-04-05 21:56:25.949 | INFO     | QueryEngine.agent:execute_search_tool:120 -   → 执行搜索工具: basic_search_news
+2026-04-05 21:56:30.389 | INFO     | QueryEngine.agent:_reflection_loop:372 -     找到 7 个反思搜索结果
+2026-04-05 21:56:30.389 | INFO     | QueryEngine.agent:_reflection_loop:375 -       1. 2025年9月加薩戰爭停火協議- 維基百科...
+2026-04-05 21:56:30.389 | INFO     | QueryEngine.agent:_reflection_loop:375 -       2. 2025年9月加沙战争停火协议 - 维基百科...
+2026-04-05 21:56:30.389 | INFO     | QueryEngine.agent:_reflection_loop:375 -       3. 加沙暫時停火後，未來會發生什麼？ - BBC News 中文...
+2026-04-05 21:56:30.389 | INFO     | QueryEngine.agent:_reflection_loop:375 -       4. [PDF] 第一〇〇九八次会议...
+2026-04-05 21:56:30.389 | INFO     | QueryEngine.agent:_reflection_loop:375 -       5. 安理会将就美国支持的加沙和平计划投票涉及部署“国际稳定部队”...
+2026-04-05 21:56:30.389 | INFO     | QueryEngine.agent:_reflection_loop:375 -       6. 美方宣布启动加沙停火第二阶段 - 新华网...
+2026-04-05 21:56:30.389 | INFO     | QueryEngine.agent:_reflection_loop:375 -       7. 加薩戰爭2週年哈瑪斯準備達成協議但仍堅持訴求| 國際| 中央社CNA...
+2026-04-05 21:56:30.389 | DEBUG    | utils.forum_reader:get_latest_host_speech:25 - forum.log文件不存在
+2026-04-05 21:56:30.390 | INFO     | QueryEngine.nodes.summary_node:run:268 - 正在生成反思总结
+2026-04-05 22:02:12.562 | ERROR    | QueryEngine.llms.base:stream_invoke:223 - 流式请求失败: ("Connection broken: ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None)", ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None))
+2026-04-05 22:02:12.562 | ERROR    | QueryEngine.llms.base:stream_invoke_to_string:282 - 流式拼接失败: ("Connection broken: ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None)", ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None))
+2026-04-05 22:02:12.562 | WARNING  | retry_helper:wrapper:97 - 函数 stream_invoke_to_string 第 1 次尝试失败: ("Connection broken: ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None)", ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None))
+2026-04-05 22:02:12.562 | INFO     | retry_helper:wrapper:98 - 将在 60.0 秒后进行第 2 次尝试...
+2026-04-05 22:09:50.160 | ERROR    | QueryEngine.llms.base:stream_invoke:223 - 流式请求失败: ("Connection broken: ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None)", ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None))
+2026-04-05 22:09:50.160 | ERROR    | QueryEngine.llms.base:stream_invoke_to_string:282 - 流式拼接失败: ("Connection broken: ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None)", ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None))
+2026-04-05 22:09:50.160 | WARNING  | retry_helper:wrapper:97 - 函数 stream_invoke_to_string 第 2 次尝试失败: ("Connection broken: ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None)", ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None))
+2026-04-05 22:09:50.160 | INFO     | retry_helper:wrapper:98 - 将在 120.0 秒后进行第 3 次尝试...

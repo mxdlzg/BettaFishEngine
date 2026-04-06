@@ -20,6 +20,7 @@ from .nodes import (
 )
 from .state import State
 from .tools import BochaMultimodalSearch, BochaResponse, AnspireAISearch, AnspireResponse
+from .tools.duckduckgo_search import DuckDuckGoMultimodalSearch, DuckDuckGoMediaResponse
 from .utils import settings, Settings, format_search_results_for_prompt
 
 
@@ -38,8 +39,22 @@ class DeepSearchAgent:
         # 初始化LLM客户端
         self.llm_client = self._initialize_llm()
         
-        # 初始化搜索工具集
-        self.search_agency = BochaMultimodalSearch(api_key=(self.config.BOCHA_API_KEY or self.config.BOCHA_WEB_SEARCH_API_KEY))
+        # 初始化搜索工具集 - 根据RETRIEVER配置选择
+        retriever = os.getenv("RETRIEVER", "duckduckgo").lower()
+        search_tool_type = os.getenv("SEARCH_TOOL_TYPE", "").lower()
+        
+        if retriever == "duckduckgo" or (not search_tool_type):
+            self.search_agency = DuckDuckGoMultimodalSearch()
+            self.search_tool_name = "DuckDuckGoMultimodalSearch"
+        elif search_tool_type == "bochaapi" and (self.config.BOCHA_API_KEY or self.config.BOCHA_WEB_SEARCH_API_KEY):
+            self.search_agency = BochaMultimodalSearch(api_key=(self.config.BOCHA_API_KEY or self.config.BOCHA_WEB_SEARCH_API_KEY))
+            self.search_tool_name = "BochaMultimodalSearch"
+        elif search_tool_type == "anspireapi" and self.config.ANSPIRE_API_KEY:
+            self.search_agency = AnspireAISearch(api_key=self.config.ANSPIRE_API_KEY)
+            self.search_tool_name = "AnspireAISearch"
+        else:
+            self.search_agency = DuckDuckGoMultimodalSearch()
+            self.search_tool_name = "DuckDuckGoMultimodalSearch"
         
         # 初始化节点
         self._initialize_nodes()
@@ -52,7 +67,7 @@ class DeepSearchAgent:
         
         logger.info(f"Media Agent已初始化")
         logger.info(f"使用LLM: {self.llm_client.get_model_info()}")
-        logger.info(f"搜索工具集: BochaMultimodalSearch (支持5种多模态搜索工具)")
+        logger.info(f"搜索工具集: {self.search_tool_name} (支持5种多模态搜索工具)")
     
     def _initialize_llm(self) -> LLMClient:
         """初始化LLM客户端"""

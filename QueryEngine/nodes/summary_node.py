@@ -154,6 +154,15 @@ class FirstSummaryNode(StateMutationNode):
                     # 如果不是JSON格式，直接返回清理后的文本
                     return cleaned_output
             
+            # 处理数组情况 - 如果LLM返回了数组，取第一个元素
+            if isinstance(result, list):
+                if len(result) > 0:
+                    logger.info(f"LLM返回了数组，包含 {len(result)} 个元素，使用第一个")
+                    result = result[0]
+                else:
+                    logger.warning("LLM返回了空数组，使用清理后的文本")
+                    return cleaned_output
+            
             # 提取段落内容
             if isinstance(result, dict):
                 paragraph_content = result.get("paragraph_latest_state", "")
@@ -320,6 +329,15 @@ class ReflectionSummaryNode(StateMutationNode):
                 else:
                     logger.error("无法修复JSON，直接使用清理后的文本")
                     # 如果不是JSON格式，直接返回清理后的文本
+                    return cleaned_output
+            
+            # 处理数组情况 - 如果LLM返回了数组，取第一个元素
+            if isinstance(result, list):
+                if len(result) > 0:
+                    logger.info(f"LLM返回了数组，包含 {len(result)} 个元素，使用第一个")
+                    result = result[0]
+                else:
+                    logger.warning("LLM返回了空数组，使用清理后的文本")
                     return cleaned_output
             
             # 提取更新后的段落内容

@@ -113,12 +113,12 @@ class EngineBridge:
         logs.append(f"Starting QueryEngine for: {query}")
         
         try:
-            # Import and instantiate
+            # Import and instantiate - use engine's own config, not global
             AgentClass = self._import_query_engine()
             
-            # Import config for engine
-            from config import settings as app_settings
-            agent = AgentClass(config=app_settings)
+            # Import engine's internal config
+            from QueryEngine.utils.config import settings as query_settings
+            agent = AgentClass(config=query_settings)
             
             logs.append("QueryEngine initialized")
             
@@ -178,8 +178,9 @@ class EngineBridge:
         try:
             AgentClass = self._import_media_engine()
             
-            from config import settings as app_settings
-            agent = AgentClass(config=app_settings)
+            # Import engine's internal config
+            from MediaEngine.utils.config import settings as media_settings
+            agent = AgentClass(config=media_settings)
             
             logs.append("MediaEngine initialized")
             
@@ -241,8 +242,9 @@ class EngineBridge:
         try:
             AgentClass = self._import_insight_engine()
             
-            from config import settings as app_settings
-            agent = AgentClass(config=app_settings)
+            # Import engine's internal config
+            from InsightEngine.utils.config import settings as insight_settings
+            agent = AgentClass(config=insight_settings)
             
             logs.append("InsightEngine initialized")
             
@@ -345,8 +347,9 @@ class EngineBridge:
         try:
             AgentClass = self._import_report_engine()
             
-            from config import settings as app_settings
-            agent = AgentClass(config=app_settings)
+            # Import engine's internal config
+            from ReportEngine.utils.config import settings as report_settings
+            agent = AgentClass(config=report_settings)
             
             logs.append("ReportEngine initialized")
             

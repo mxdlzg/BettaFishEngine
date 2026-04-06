@@ -120,6 +120,20 @@ class FirstSearchNode(BaseNode):
                         logger.error("无法修复JSON，使用默认查询")
                         return self._get_default_search_query()
             
+            # 处理数组情况 - 如果LLM返回了数组，取第一个元素
+            if isinstance(result, list):
+                if len(result) > 0:
+                    logger.info(f"LLM返回了数组，包含 {len(result)} 个元素，使用第一个")
+                    result = result[0]
+                else:
+                    logger.warning("LLM返回了空数组，使用默认查询")
+                    return self._get_default_search_query()
+            
+            # 确保result是字典
+            if not isinstance(result, dict):
+                logger.warning(f"结果不是字典类型: {type(result)}，使用默认查询")
+                return self._get_default_search_query()
+            
             # 验证和清理结果
             search_query = result.get("search_query", "")
             reasoning = result.get("reasoning", "")
@@ -254,6 +268,20 @@ class ReflectionNode(BaseNode):
                     else:
                         logger.error("无法修复JSON，使用默认查询")
                         return self._get_default_reflection_query()
+            
+            # 处理数组情况 - 如果LLM返回了数组，取第一个元素
+            if isinstance(result, list):
+                if len(result) > 0:
+                    logger.info(f"LLM返回了数组，包含 {len(result)} 个元素，使用第一个")
+                    result = result[0]
+                else:
+                    logger.warning("LLM返回了空数组，使用默认查询")
+                    return self._get_default_reflection_query()
+            
+            # 确保result是字典
+            if not isinstance(result, dict):
+                logger.warning(f"结果不是字典类型: {type(result)}，使用默认查询")
+                return self._get_default_reflection_query()
             
             # 验证和清理结果
             search_query = result.get("search_query", "")

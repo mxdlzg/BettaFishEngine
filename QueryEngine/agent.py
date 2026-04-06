@@ -19,7 +19,7 @@ from .nodes import (
     ReportFormattingNode
 )
 from .state import State
-from .tools import TavilyNewsAgency, TavilyResponse
+from .tools import DuckDuckGoNewsAgency, DuckDuckGoResponse
 from .utils import Settings, format_search_results_for_prompt
 from loguru import logger
 
@@ -40,8 +40,10 @@ class DeepSearchAgent:
         # 初始化LLM客户端
         self.llm_client = self._initialize_llm()
         
-        # 初始化搜索工具集
-        self.search_agency = TavilyNewsAgency(api_key=self.config.TAVILY_API_KEY)
+        # 初始化搜索工具集 - 只使用DuckDuckGo
+        self.search_agency = DuckDuckGoNewsAgency()
+        self.search_tool_name = "DuckDuckGoNewsAgency"
+        logger.info(f"使用搜索工具: {self.search_tool_name}")
         
         # 初始化节点
         self._initialize_nodes()
@@ -54,7 +56,7 @@ class DeepSearchAgent:
         
         logger.info(f"Query Agent已初始化")
         logger.info(f"使用LLM: {self.llm_client.get_model_info()}")
-        logger.info(f"搜索工具集: TavilyNewsAgency (支持6种搜索工具)")
+        logger.info(f"搜索工具集: {self.search_tool_name} (支持6种搜索工具)")
     
     def _initialize_llm(self) -> LLMClient:
         """初始化LLM客户端"""
@@ -97,7 +99,7 @@ class DeepSearchAgent:
         except ValueError:
             return False
     
-    def execute_search_tool(self, tool_name: str, query: str, **kwargs) -> TavilyResponse:
+    def execute_search_tool(self, tool_name: str, query: str, **kwargs) -> DuckDuckGoResponse:
         """
         执行指定的搜索工具
         
@@ -113,7 +115,7 @@ class DeepSearchAgent:
             **kwargs: 额外参数（如start_date, end_date, max_results）
             
         Returns:
-            TavilyResponse对象
+            DuckDuckGoResponse对象
         """
         logger.info(f"  → 执行搜索工具: {tool_name}")
         
@@ -138,13 +140,14 @@ class DeepSearchAgent:
             logger.warning(f"  ⚠️  未知的搜索工具: {tool_name}，使用默认基础搜索")
             return self.search_agency.basic_search_news(query)
     
-    def research(self, query: str, save_report: bool = True) -> str:
+    def research(self, query: str, save_report: bool = True, export_formats: List[str] = None) -> str:
         """
         执行深度研究
         
         Args:
             query: 研究查询
             save_report: 是否保存报告到文件
+            export_formats: 导出格式列表，可选 ['md', 'html', 'pdf', 'docx']，默认只导出md
             
         Returns:
             最终报告内容
@@ -165,7 +168,9 @@ class DeepSearchAgent:
             
             # Step 4: 保存报告
             if save_report:
-                self._save_report(final_report)
+                saved_files = self._save_report(final_report, export_formats or ['md'])
+                if saved_files:
+                    logger.info(f"已导出文件: {list(saved_files.keys())}")
             
             logger.info(f"\n{'='*60}")
             logger.info("深度研究完成！")
@@ -423,21 +428,66 @@ class DeepSearchAgent:
         logger.info("最终报告生成完成")
         return final_report
     
-    def _save_report(self, report_content: str):
-        """保存报告到文件"""
+    def _save_report(self, report_content: str, export_formats: List[str] = None):
+        """
+        保存报告到文件，支持多种格式导出
+        
+        Args:
+            report_content: 报告Markdown内容
+            export_formats: 要导出的格式列表，支持 ['md', 'html', 'pdf', 'docx']
+        """
         # 生成文件名
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         query_safe = "".join(c for c in self.state.query if c.isalnum() or c in (' ', '-', '_')).rstrip()
         query_safe = query_safe.replace(' ', '_')[:30]
         
-        filename = f"deep_search_report_{query_safe}_{timestamp}.md"
-        filepath = os.path.join(self.config.OUTPUT_DIR, filename)
+        base_filename = f"deep_search_report_{query_safe}_{timestamp}"
         
-        # 保存报告
-        with open(filepath, 'w', encoding='utf-8') as f:
-            f.write(report_content)
+        # 默认导出格式
+        if export_formats is None:
+            export_formats = ['md']  # 默认只导出Markdown
         
-        logger.info(f"报告已保存到: {filepath}")
+        saved_files = {}
+        
+        # 保存Markdown
+        if 'md' in export_formats:
+            md_filepath = os.path.join(self.config.OUTPUT_DIR, f"{base_filename}.md")
+            with open(md_filepath, 'w', encoding='utf-8') as f:
+                f.write(report_content)
+            saved_files['md'] = md_filepath
+            logger.info(f"Markdown报告已保存到: {md_filepath}")
+        
+        # 导出HTML
+        if 'html' in export_formats:
+            try:
+                html_content = self._convert_to_html(report_content)
+                html_filepath = os.path.join(self.config.OUTPUT_DIR, f"{base_filename}.html")
+                with open(html_filepath, 'w', encoding='utf-8') as f:
+                    f.write(html_content)
+                saved_files['html'] = html_filepath
+                logger.info(f"HTML报告已保存到: {html_filepath}")
+            except Exception as e:
+                logger.error(f"HTML导出失败: {e}")
+        
+        # 导出PDF
+        if 'pdf' in export_formats:
+            try:
+                pdf_filepath = os.path.join(self.config.OUTPUT_DIR, f"{base_filename}.pdf")
+                self._convert_to_pdf(report_content, pdf_filepath)
+                saved_files['pdf'] = pdf_filepath
+                logger.info(f"PDF报告已保存到: {pdf_filepath}")
+            except Exception as e:
+                logger.error(f"PDF导出失败: {e}")
+        
+        # 导出DOCX
+        if 'docx' in export_formats:
+            try:
+                docx_filepath = os.path.join(self.config.OUTPUT_DIR, f"{base_filename}.docx")
+                self._convert_to_docx(report_content, docx_filepath)
+                saved_files['docx'] = docx_filepath
+                logger.info(f"Word报告已保存到: {docx_filepath}")
+            except Exception as e:
+                logger.error(f"Word导出失败: {e}")
         
         # 保存状态（如果配置允许）
         if self.config.SAVE_INTERMEDIATE_STATES:
@@ -445,6 +495,238 @@ class DeepSearchAgent:
             state_filepath = os.path.join(self.config.OUTPUT_DIR, state_filename)
             self.state.save_to_file(state_filepath)
             logger.info(f"状态已保存到: {state_filepath}")
+        
+        return saved_files
+    
+    def _convert_to_html(self, markdown_content: str) -> str:
+        """将Markdown转换为HTML"""
+        try:
+            import markdown
+            from markdown.extensions.tables import TableExtension
+            from markdown.extensions.fenced_code import FencedCodeExtension
+            from markdown.extensions.toc import TocExtension
+        except ImportError:
+            logger.warning("markdown库未安装，使用简单HTML转换")
+            return self._simple_markdown_to_html(markdown_content)
+        
+        # 创建Markdown转换器
+        md = markdown.Markdown(extensions=[
+            'tables',
+            'fenced_code',
+            'toc',
+            'nl2br',
+            'sane_lists',
+        ])
+        
+        html_body = md.convert(markdown_content)
+        
+        # 包装完整HTML
+        html_template = f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>深度搜索报告</title>
+    <style>
+        body {{
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            line-height: 1.8;
+            color: #333;
+            background-color: #fafafa;
+        }}
+        h1 {{ color: #1a1a1a; border-bottom: 3px solid #2196F3; padding-bottom: 15px; }}
+        h2 {{ color: #333; border-bottom: 2px solid #eee; padding-bottom: 10px; margin-top: 30px; }}
+        h3 {{ color: #444; margin-top: 25px; }}
+        table {{
+            border-collapse: collapse;
+            width: 100%;
+            margin: 20px 0;
+            background: white;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }}
+        th, td {{
+            border: 1px solid #ddd;
+            padding: 12px 15px;
+            text-align: left;
+        }}
+        th {{ background-color: #2196F3; color: white; }}
+        tr:nth-child(even) {{ background-color: #f9f9f9; }}
+        code {{
+            background-color: #f4f4f4;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }}
+        pre {{
+            background-color: #f4f4f4;
+            padding: 15px;
+            border-radius: 5px;
+            overflow-x: auto;
+        }}
+        blockquote {{
+            border-left: 4px solid #2196F3;
+            margin: 20px 0;
+            padding: 10px 20px;
+            background-color: #f9f9f9;
+            color: #555;
+        }}
+        strong {{ color: #1a1a1a; }}
+        a {{ color: #2196F3; text-decoration: none; }}
+        a:hover {{ text-decoration: underline; }}
+        ul, ol {{ padding-left: 25px; }}
+        li {{ margin: 8px 0; }}
+        .report-meta {{
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 10px;
+            margin-bottom: 30px;
+        }}
+        @media print {{
+            body {{ background: white; max-width: none; }}
+            .no-print {{ display: none; }}
+        }}
+    </style>
+</head>
+<body>
+{html_body}
+<footer style="margin-top: 50px; padding-top: 20px; border-top: 1px solid #eee; color: #888; font-size: 12px;">
+    <p>本报告由深度搜索系统自动生成 | 生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+</footer>
+</body>
+</html>"""
+        
+        return html_template
+    
+    def _simple_markdown_to_html(self, content: str) -> str:
+        """简单的Markdown到HTML转换（不依赖外部库）"""
+        import html as html_module
+        
+        # 转义HTML
+        content = html_module.escape(content)
+        
+        # 标题转换
+        content = re.sub(r'^### (.+)$', r'<h3>\1</h3>', content, flags=re.MULTILINE)
+        content = re.sub(r'^## (.+)$', r'<h2>\1</h2>', content, flags=re.MULTILINE)
+        content = re.sub(r'^# (.+)$', r'<h1>\1</h1>', content, flags=re.MULTILINE)
+        
+        # 粗体和斜体
+        content = re.sub(r'\*\*(.+?)\*\*', r'<strong>\1</strong>', content)
+        content = re.sub(r'\*(.+?)\*', r'<em>\1</em>', content)
+        
+        # 链接
+        content = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', r'<a href="\2">\1</a>', content)
+        
+        # 段落
+        content = re.sub(r'\n\n', '</p><p>', content)
+        content = f'<p>{content}</p>'
+        
+        return f"""<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>深度搜索报告</title>
+    <style>
+        body {{ font-family: sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; line-height: 1.6; }}
+        h1, h2, h3 {{ color: #333; }}
+        a {{ color: #0066cc; }}
+    </style>
+</head>
+<body>
+{content}
+</body>
+</html>"""
+    
+    def _convert_to_pdf(self, markdown_content: str, output_path: str):
+        """将Markdown转换为PDF"""
+        try:
+            from weasyprint import HTML
+            
+            # 先转换为HTML
+            html_content = self._convert_to_html(markdown_content)
+            
+            # 转换为PDF
+            HTML(string=html_content).write_pdf(output_path)
+            logger.info(f"PDF生成成功: {output_path}")
+            
+        except ImportError:
+            logger.error("weasyprint库未安装，无法生成PDF。请运行: pip install weasyprint")
+            raise ImportError("weasyprint未安装")
+        except Exception as e:
+            logger.error(f"PDF生成失败: {e}")
+            raise
+    
+    def _convert_to_docx(self, markdown_content: str, output_path: str):
+        """将Markdown转换为Word文档"""
+        try:
+            from docx import Document
+            from docx.shared import Pt, Inches, RGBColor
+            from docx.enum.text import WD_ALIGN_PARAGRAPH
+            from docx.enum.style import WD_STYLE_TYPE
+        except ImportError:
+            logger.error("python-docx库未安装，无法生成Word文档。请运行: pip install python-docx")
+            raise ImportError("python-docx未安装")
+        
+        doc = Document()
+        
+        # 设置默认样式
+        style = doc.styles['Normal']
+        font = style.font
+        font.name = '微软雅黑'
+        font.size = Pt(11)
+        
+        # 解析Markdown并转换
+        lines = markdown_content.split('\n')
+        current_paragraph = None
+        
+        for line in lines:
+            stripped = line.strip()
+            
+            if not stripped:
+                current_paragraph = None
+                continue
+            
+            # 处理标题
+            if stripped.startswith('# '):
+                heading = doc.add_heading(stripped[2:], level=1)
+                heading.alignment = WD_ALIGN_PARAGRAPH.LEFT
+            elif stripped.startswith('## '):
+                doc.add_heading(stripped[3:], level=2)
+            elif stripped.startswith('### '):
+                doc.add_heading(stripped[4:], level=3)
+            elif stripped.startswith('#### '):
+                doc.add_heading(stripped[5:], level=4)
+            # 处理列表
+            elif stripped.startswith('- ') or stripped.startswith('* '):
+                doc.add_paragraph(stripped[2:], style='List Bullet')
+            elif re.match(r'^\d+\. ', stripped):
+                content = re.sub(r'^\d+\. ', '', stripped)
+                doc.add_paragraph(content, style='List Number')
+            # 处理引用
+            elif stripped.startswith('> '):
+                para = doc.add_paragraph(stripped[2:])
+                para.style = 'Quote' if 'Quote' in [s.name for s in doc.styles] else 'Normal'
+            # 处理普通段落
+            else:
+                # 处理粗体
+                if '**' in stripped:
+                    para = doc.add_paragraph()
+                    parts = re.split(r'(\*\*[^*]+\*\*)', stripped)
+                    for part in parts:
+                        if part.startswith('**') and part.endswith('**'):
+                            run = para.add_run(part[2:-2])
+                            run.bold = True
+                        else:
+                            para.add_run(part)
+                else:
+                    doc.add_paragraph(stripped)
+        
+        # 保存文档
+        doc.save(output_path)
+        logger.info(f"Word文档生成成功: {output_path}")
     
     def get_progress_summary(self) -> Dict[str, Any]:
         """获取进度摘要"""

@@ -11,7 +11,8 @@ from loguru import logger
 from ..prompts import SYSTEM_PROMPT_REPORT_FORMATTING
 from ..utils.text_processing import (
     remove_reasoning_from_output,
-    clean_markdown_tags
+    clean_markdown_tags,
+    clean_markdown_report
 )
 
 
@@ -95,8 +96,8 @@ class ReportFormattingNode(BaseNode):
             清理后的Markdown报告
         """
         try:
-            # 清理响应文本
-            cleaned_output = remove_reasoning_from_output(output)
+            # 清理响应文本 - 使用专门的报告清理函数
+            cleaned_output = clean_markdown_report(output)
             cleaned_output = clean_markdown_tags(cleaned_output)
             
             # 确保报告有基本结构
