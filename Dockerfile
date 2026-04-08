@@ -71,7 +71,11 @@ COPY . .
 # Ensure runtime directories exist even if ignored in build context
 RUN mkdir -p /ms-playwright logs final_reports insight_engine_streamlit_reports media_engine_streamlit_reports query_engine_streamlit_reports
 
-EXPOSE 5000 8501 8502 8503
+EXPOSE 19000
 
-# Default command launches the Flask orchestrator which starts Streamlit agents
-CMD ["python", "app.py"]
+# Health check for the API gateway
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:19000/healthz || exit 1
+
+# Default command launches the BettaFish FastAPI gateway
+CMD ["python", "-m", "uvicorn", "engine_gateway_api:app", "--host", "0.0.0.0", "--port", "19000"]

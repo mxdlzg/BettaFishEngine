@@ -2,35 +2,29 @@
 """
 Engine Bridge for LangGraph Multi-Agent System.
 
-Provides a unified interface to call the original BettaFish engines
-(QueryEngine, MediaEngine, InsightEngine, ForumEngine, ReportEngine)
+Provides a unified HTTP interface to call BettaFish engines
 from LangGraph nodes.
+
+This bridge is intentionally stateless and HTTP-only so the
+multi_agents package can run independently from engine code.
 """
 
-import sys
-import os
-from pathlib import Path
 from typing import Dict, Any, Optional, List
 import time
-
-# Add project root to path for imports
-PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+import requests
 
 from multi_agents.settings import get_settings, Settings
-from multi_agents.tools.logger import get_logger, TaskLogger
-from multi_agents.tools.json_utils import safe_json_loads
+from multi_agents.tools.logger import get_logger
 
 logger = get_logger("engine_bridge")
 
 
 class EngineBridge:
     """
-    Bridge layer for calling original BettaFish engines.
-    
-    Wraps each engine's functionality with a standardized interface
-    for use by LangGraph nodes.
+    Bridge layer for calling BettaFish engines via HTTP.
+
+    The bridge keeps no mutable request state and is safe to use from
+    concurrent graph executions.
     """
     
     def __init__(self, settings: Optional[Settings] = None):
@@ -41,54 +35,63 @@ class EngineBridge:
             settings: Settings instance, or None to use global settings
         """
         self.settings = settings or get_settings()
-        self._query_engine = None
-        self._media_engine = None
-        self._insight_engine = None
-        self._report_engine = None
-    
-    def _import_query_engine(self):
-        """Lazy import QueryEngine."""
-        if self._query_engine is None:
+
+    def _build_headers(self, task_id: str) -> Dict[str, str]:
+        """Build per-request headers for engine APIs."""
+        headers: Dict[str, str] = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+
+        if task_id:
+            headers["X-Task-Id"] = task_id
+
+        if self.settings.engine_api_token:
+            headers["Authorization"] = f"Bearer {self.settings.engine_api_token}"
+
+        return headers
+
+    def _post_json(
+        self,
+        url: str,
+        payload: Dict[str, Any],
+        task_id: str,
+        logs: List[str],
+    ) -> Dict[str, Any]:
+        """
+        Send a JSON POST request with retry.
+
+        This method is stateless and does not keep request/session state,
+        which makes it safe under concurrent graph runs.
+        """
+        max_attempts = max(1, self.settings.engine_max_retries + 1)
+        timeout = max(1, self.settings.engine_request_timeout_sec)
+        last_error = ""
+
+        for attempt in range(1, max_attempts + 1):
             try:
-                from QueryEngine.agent import DeepSearchAgent
-                self._query_engine = DeepSearchAgent
-            except ImportError as e:
-                logger.error(f"Failed to import QueryEngine: {e}")
-                raise
-        return self._query_engine
-    
-    def _import_media_engine(self):
-        """Lazy import MediaEngine."""
-        if self._media_engine is None:
-            try:
-                from MediaEngine.agent import DeepSearchAgent
-                self._media_engine = DeepSearchAgent
-            except ImportError as e:
-                logger.error(f"Failed to import MediaEngine: {e}")
-                raise
-        return self._media_engine
-    
-    def _import_insight_engine(self):
-        """Lazy import InsightEngine."""
-        if self._insight_engine is None:
-            try:
-                from InsightEngine.agent import DeepSearchAgent
-                self._insight_engine = DeepSearchAgent
-            except ImportError as e:
-                logger.error(f"Failed to import InsightEngine: {e}")
-                raise
-        return self._insight_engine
-    
-    def _import_report_engine(self):
-        """Lazy import ReportEngine."""
-        if self._report_engine is None:
-            try:
-                from ReportEngine.agent import ReportAgent
-                self._report_engine = ReportAgent
-            except ImportError as e:
-                logger.error(f"Failed to import ReportEngine: {e}")
-                raise
-        return self._report_engine
+                logs.append(f"HTTP POST attempt {attempt}/{max_attempts}: {url}")
+                resp = requests.post(
+                    url,
+                    json=payload,
+                    headers=self._build_headers(task_id),
+                    timeout=timeout,
+                )
+                if resp.status_code >= 400:
+                    body_preview = (resp.text or "")[:1000]
+                    raise RuntimeError(f"HTTP {resp.status_code}: {body_preview}")
+
+                data = resp.json()
+                if not isinstance(data, dict):
+                    raise ValueError("Engine response is not a JSON object")
+                return data
+            except Exception as e:
+                last_error = str(e)
+                logs.append(f"Attempt {attempt} failed: {last_error}")
+                if attempt < max_attempts:
+                    time.sleep(min(2 ** (attempt - 1), 3))
+
+        raise RuntimeError(last_error or "Unknown HTTP error")
     
     def run_query_engine(
         self,
@@ -113,32 +116,26 @@ class EngineBridge:
         logs.append(f"Starting QueryEngine for: {query}")
         
         try:
-            # Import and instantiate - use engine's own config, not global
-            AgentClass = self._import_query_engine()
-            
-            # Import engine's internal config
-            from QueryEngine.utils.config import settings as query_settings
-            agent = AgentClass(config=query_settings)
-            
-            logs.append("QueryEngine initialized")
-            
-            # Run research
-            report = agent.research(query=query, save_report=True)
-            
-            logs.append("QueryEngine research completed")
-            
-            # Extract structured result
+            payload = {
+                "query": query,
+                "context": context,
+            }
+            data = self._post_json(self.settings.query_engine_url, payload, task_id, logs)
+
             duration = time.time() - start_time
+
+            summary = data.get("summary") or data.get("report") or ""
+            sources = data.get("sources") or self._extract_sources_from_report(str(summary))
             
             return {
-                "summary": report if isinstance(report, str) else str(report),
-                "sources": self._extract_sources_from_report(report),
-                "raw_result": {"report": report},
+                "summary": summary if isinstance(summary, str) else str(summary),
+                "sources": sources if isinstance(sources, list) else [],
+                "raw_result": data,
                 "stats": {
                     "duration_seconds": duration,
                     "engine": "QueryEngine",
                 },
-                "logs": logs,
+                "logs": logs + (data.get("logs") if isinstance(data.get("logs"), list) else []),
             }
             
         except Exception as e:
@@ -176,31 +173,26 @@ class EngineBridge:
         logs.append(f"Starting MediaEngine for: {query}")
         
         try:
-            AgentClass = self._import_media_engine()
-            
-            # Import engine's internal config
-            from MediaEngine.utils.config import settings as media_settings
-            agent = AgentClass(config=media_settings)
-            
-            logs.append("MediaEngine initialized")
-            
-            report = agent.research(query=query, save_report=True)
-            
-            logs.append("MediaEngine research completed")
-            
+            payload = {
+                "query": query,
+                "context": context,
+            }
+            data = self._post_json(self.settings.media_engine_url, payload, task_id, logs)
+
             duration = time.time() - start_time
+            summary = data.get("summary") or data.get("report") or ""
             
             return {
-                "summary": report if isinstance(report, str) else str(report),
-                "platform_distribution": {},
-                "media_highlights": [],
-                "sources": self._extract_sources_from_report(report),
-                "raw_result": {"report": report},
+                "summary": summary if isinstance(summary, str) else str(summary),
+                "platform_distribution": data.get("platform_distribution") if isinstance(data.get("platform_distribution"), dict) else {},
+                "media_highlights": data.get("media_highlights") if isinstance(data.get("media_highlights"), list) else [],
+                "sources": data.get("sources") if isinstance(data.get("sources"), list) else self._extract_sources_from_report(str(summary)),
+                "raw_result": data,
                 "stats": {
                     "duration_seconds": duration,
                     "engine": "MediaEngine",
                 },
-                "logs": logs,
+                "logs": logs + (data.get("logs") if isinstance(data.get("logs"), list) else []),
             }
             
         except Exception as e:
@@ -240,33 +232,28 @@ class EngineBridge:
         logs.append(f"Starting InsightEngine for: {query}")
         
         try:
-            AgentClass = self._import_insight_engine()
-            
-            # Import engine's internal config
-            from InsightEngine.utils.config import settings as insight_settings
-            agent = AgentClass(config=insight_settings)
-            
-            logs.append("InsightEngine initialized")
-            
-            report = agent.research(query=query, save_report=True)
-            
-            logs.append("InsightEngine research completed")
-            
+            payload = {
+                "query": query,
+                "context": context,
+            }
+            data = self._post_json(self.settings.insight_engine_url, payload, task_id, logs)
+
             duration = time.time() - start_time
+            summary = data.get("summary") or data.get("report") or ""
             
             return {
-                "summary": report if isinstance(report, str) else str(report),
-                "sentiment_summary": {},
-                "keyword_clusters": [],
-                "topic_clusters": [],
-                "risk_signals": [],
-                "sources": self._extract_sources_from_report(report),
-                "raw_result": {"report": report},
+                "summary": summary if isinstance(summary, str) else str(summary),
+                "sentiment_summary": data.get("sentiment_summary") if isinstance(data.get("sentiment_summary"), dict) else {},
+                "keyword_clusters": data.get("keyword_clusters") if isinstance(data.get("keyword_clusters"), list) else [],
+                "topic_clusters": data.get("topic_clusters") if isinstance(data.get("topic_clusters"), list) else [],
+                "risk_signals": data.get("risk_signals") if isinstance(data.get("risk_signals"), list) else [],
+                "sources": data.get("sources") if isinstance(data.get("sources"), list) else self._extract_sources_from_report(str(summary)),
+                "raw_result": data,
                 "stats": {
                     "duration_seconds": duration,
                     "engine": "InsightEngine",
                 },
-                "logs": logs,
+                "logs": logs + (data.get("logs") if isinstance(data.get("logs"), list) else []),
             }
             
         except Exception as e:
@@ -345,43 +332,28 @@ class EngineBridge:
         logs.append(f"Starting ReportEngine for: {query}")
         
         try:
-            AgentClass = self._import_report_engine()
-            
-            # Import engine's internal config
-            from ReportEngine.utils.config import settings as report_settings
-            agent = AgentClass(config=report_settings)
-            
-            logs.append("ReportEngine initialized")
-            
-            # The report engine reads from markdown files in the engine directories
-            # Trigger report generation
-            result = agent.generate_report()
-            
+            payload = {
+                "query": query,
+                "merged_result": merged_result,
+                "context": context,
+            }
+            data = self._post_json(self.settings.report_engine_url, payload, task_id, logs)
             logs.append("ReportEngine completed")
             
             duration = time.time() - start_time
             
-            # Find generated files
-            from pathlib import Path
-            final_reports_dir = PROJECT_ROOT / "final_reports"
-            
-            html_files = sorted(final_reports_dir.glob("*_report.html"), reverse=True)
-            pdf_files = sorted(final_reports_dir.glob("*_report.pdf"), reverse=True)
-            
-            html_path = str(html_files[0]) if html_files else ""
-            pdf_path = str(pdf_files[0]) if pdf_files else ""
-            
             return {
-                "summary_text": result if isinstance(result, str) else "",
-                "html_path": html_path,
-                "pdf_path": pdf_path,
-                "docx_path": "",
-                "md_path": "",
-                "chart_paths": [],
+                "summary_text": data.get("summary_text") or data.get("summary") or "",
+                "html_path": data.get("html_path", ""),
+                "pdf_path": data.get("pdf_path", ""),
+                "docx_path": data.get("docx_path", ""),
+                "md_path": data.get("md_path", ""),
+                "chart_paths": data.get("chart_paths") if isinstance(data.get("chart_paths"), list) else [],
                 "manifest": {
                     "query": query,
                     "task_id": task_id,
                     "duration_seconds": duration,
+                    "engine": "ReportEngine",
                 },
             }
             

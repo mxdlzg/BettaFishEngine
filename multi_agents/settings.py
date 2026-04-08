@@ -67,6 +67,15 @@ class Settings:
     search_timeout: int = 240
     max_content_length: int = 500000
 
+    # ==================== Engine Bridge (HTTP only) ====================
+    engine_request_timeout_sec: int = 180
+    engine_max_retries: int = 2
+    query_engine_url: str = "http://127.0.0.1:19000/v1/research/query"
+    media_engine_url: str = "http://127.0.0.1:19000/v1/research/media"
+    insight_engine_url: str = "http://127.0.0.1:19000/v1/research/insight"
+    report_engine_url: str = "http://127.0.0.1:19000/v1/report"
+    engine_api_token: str = ""
+
 
 def load_settings() -> Settings:
     """
@@ -111,6 +120,15 @@ def load_settings() -> Settings:
         max_paragraphs=int(os.getenv("MAX_PARAGRAPHS", "6")),
         search_timeout=int(os.getenv("SEARCH_TIMEOUT", "240")),
         max_content_length=int(os.getenv("MAX_CONTENT_LENGTH", "500000")),
+
+        # Engine Bridge (HTTP only)
+        engine_request_timeout_sec=int(os.getenv("ENGINE_REQUEST_TIMEOUT_SEC", "180")),
+        engine_max_retries=int(os.getenv("ENGINE_MAX_RETRIES", "2")),
+        query_engine_url=os.getenv("QUERY_ENGINE_URL", "http://127.0.0.1:19000/v1/research/query"),
+        media_engine_url=os.getenv("MEDIA_ENGINE_URL", "http://127.0.0.1:19000/v1/research/media"),
+        insight_engine_url=os.getenv("INSIGHT_ENGINE_URL", "http://127.0.0.1:19000/v1/research/insight"),
+        report_engine_url=os.getenv("REPORT_ENGINE_URL", "http://127.0.0.1:19000/v1/report"),
+        engine_api_token=os.getenv("ENGINE_API_TOKEN", ""),
     )
 
 
