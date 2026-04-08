@@ -62,9 +62,6 @@ RUN uv pip install --system -r requirements.txt
 # Install Playwright browser binaries (system deps already handled above)
 RUN python -m playwright install chromium
 
-# Copy .env
-COPY .env.example .env
-
 # Copy application source
 COPY . .
 
@@ -78,4 +75,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD curl -f http://localhost:19000/healthz || exit 1
 
 # Default command launches the BettaFish FastAPI gateway
-CMD ["python", "-m", "uvicorn", "engine_gateway_api:app", "--host", "0.0.0.0", "--port", "19000"]
+CMD ["python", "-m", "uvicorn", "engine_gateway_api:app", "--host", "0.0.0.0", "--port", "8000"]

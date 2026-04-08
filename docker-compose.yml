@@ -1,31 +1,25 @@
 services:
-  gateway:
+  bettafish-gateway:
     build:
       context: .
       dockerfile: Dockerfile
     image: bettafish-gateway:latest
     container_name: bettafish-gateway
     restart: unless-stopped
-    depends_on:
-      - db
     env_file:
       - .env
     environment:
       - PYTHONUNBUFFERED=1
       - ENGINE_GATEWAY_HOST=0.0.0.0
-      - ENGINE_GATEWAY_PORT=19000
       - ENGINE_GATEWAY_DEBUG=0
+      - DB_DIALECT=postgresql
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=bettafish-db
+      - DB_USER=bettafish
+      - DB_PASSWORD=bettafish
     ports:
-      - "19000:19000"
-    command:
-      - python
-      - -m
-      - uvicorn
-      - engine_gateway_api:app
-      - --host
-      - 0.0.0.0
-      - --port
-      - "19000"
+      - "8014:8000"
     volumes:
       - ./logs:/app/logs
       - ./final_reports:/app/final_reports
@@ -33,18 +27,10 @@ services:
       - ./insight_engine_streamlit_reports:/app/insight_engine_streamlit_reports
       - ./media_engine_streamlit_reports:/app/media_engine_streamlit_reports
       - ./query_engine_streamlit_reports:/app/query_engine_streamlit_reports
+    networks:
+      - deepagents-net
 
-  db:
-    image: postgres:15
-    container_name: bettafish-db
-    restart: unless-stopped
-    env_file:
-      - .env
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-bettafish}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bettafish}
-      POSTGRES_DB: ${POSTGRES_DB:-bettafish}
-    ports:
-      - "${POSTGRES_PORT:-5444}:5432"
-    volumes:
-      - ./db_data:/var/lib/postgresql/data
+networks:
+  deepagents-net:
+    external: true
+    name: deepagents-net
