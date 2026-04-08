@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: bettafish-gateway:latest
+    # image: bettafish-gateway:latest
     container_name: bettafish-gateway
     restart: unless-stopped
     env_file:
