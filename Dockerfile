@@ -1,3 +1,5 @@
+FROM ghcr.io/astral-sh/uv:latest AS uv
+
 FROM python:3.11-slim
 
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
@@ -50,8 +52,7 @@ RUN set -euo pipefail; \
     apt-get clean; \
     rm -rf /var/lib/apt/lists/*
 
-# Install the latest uv release and expose it on PATH
-RUN curl -LsSf --retry 3 --retry-delay 2 --proto '=https' --proto-redir '=https' --tlsv1.2 https://astral.sh/uv/install.sh | sh
+COPY --from=uv /uv /usr/local/bin/uv
 
 WORKDIR /app
 
@@ -68,11 +69,11 @@ COPY . .
 # Ensure runtime directories exist even if ignored in build context
 RUN mkdir -p /ms-playwright logs final_reports insight_engine_streamlit_reports media_engine_streamlit_reports query_engine_streamlit_reports
 
-EXPOSE 19000
+EXPOSE 8000
 
 # Health check for the API gateway
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:19000/healthz || exit 1
+    CMD curl -f http://localhost:8000/healthz || exit 1
 
 # Default command launches the BettaFish FastAPI gateway
 CMD ["python", "-m", "uvicorn", "engine_gateway_api:app", "--host", "0.0.0.0", "--port", "8000"]
