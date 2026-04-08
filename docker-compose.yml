@@ -13,7 +13,7 @@ services:
       - ENGINE_GATEWAY_HOST=0.0.0.0
       - ENGINE_GATEWAY_DEBUG=0
       - DB_DIALECT=postgresql
-      - DB_HOST=postgres
+      - DB_HOST=deepagents-postgres-1
       - DB_PORT=5432
       - DB_NAME=bettafish-db
       - DB_USER=bettafish
@@ -28,9 +28,9 @@ services:
       - ./media_engine_streamlit_reports:/app/media_engine_streamlit_reports
       - ./query_engine_streamlit_reports:/app/query_engine_streamlit_reports
     networks:
-      - deepagents-net
+      - deepagents_deepagents-net
 
 networks:
-  deepagents-net:
+  deepagents_deepagents-net:
     external: true
-    name: deepagents-net
+    name: deepagents_deepagents-net
