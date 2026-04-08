@@ -83,6 +83,18 @@ class EngineRuntime:
         self.report_settings = None
 
     def initialize(self) -> None:
+        project_root = Path(__file__).resolve().parent
+        required_files = [
+            project_root / "QueryEngine" / "agent.py",
+            project_root / "QueryEngine" / "utils" / "config.py",
+            project_root / "MediaEngine" / "agent.py",
+            project_root / "InsightEngine" / "agent.py",
+            project_root / "ReportEngine" / "agent.py",
+        ]
+        missing = [str(p) for p in required_files if not p.exists()]
+        if missing:
+            raise RuntimeError(f"Missing embedded engine files: {missing}")
+
         from QueryEngine.agent import DeepSearchAgent as QueryAgent
         from QueryEngine.utils.config import settings as query_settings
         from MediaEngine.agent import DeepSearchAgent as MediaAgent

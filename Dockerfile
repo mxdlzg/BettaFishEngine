@@ -66,6 +66,14 @@ RUN python -m playwright install chromium
 # Copy application source
 COPY . .
 
+# Fail fast if core embedded engine source files are missing
+RUN test -f /app/engine_gateway_api.py && \
+    test -f /app/QueryEngine/agent.py && \
+    test -f /app/QueryEngine/utils/config.py && \
+    test -f /app/MediaEngine/agent.py && \
+    test -f /app/InsightEngine/agent.py && \
+    test -f /app/ReportEngine/agent.py
+
 # Ensure runtime directories exist even if ignored in build context
 RUN mkdir -p /ms-playwright logs final_reports insight_engine_streamlit_reports media_engine_streamlit_reports query_engine_streamlit_reports
 
