@@ -363,9 +363,12 @@ uv venv --python 3.11 # 创建3.11环境
 # 基础依赖安装
 pip install -r requirements.txt
 
+# 可选：仅在需要 InsightEngine 本地聚类/情感模型时安装重型依赖
+pip install -r requirements-insight-ml.txt
+
 # uv版本命令（更快速安装）
 uv pip install -r requirements.txt
-# 如果不想使用本地情感分析模型（算力需求很小，默认安装cpu版本），可以将该文件中的"机器学习"部分注释掉再执行指令
+uv pip install -r requirements-insight-ml.txt
 ```
 
 ### 4. 安装Playwright浏览器驱动

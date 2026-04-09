@@ -1,0 +1,8 @@
+# Optional heavy dependencies for InsightEngine advanced local ML features
+# Install only when needed:
+#   pip install -r requirements-insight-ml.txt
+
+# CPU version by default. For GPU builds, install torch from the official index URL.
+torch>=2.0.0
+transformers>=4.30.0
+sentence-transformers>=2.2.2

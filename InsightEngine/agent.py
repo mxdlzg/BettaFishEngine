@@ -11,8 +11,15 @@ from typing import Any, Dict, List, Optional, Union
 
 import numpy as np
 from loguru import logger
-from sentence_transformers import SentenceTransformer
 from sklearn.cluster import KMeans
+
+try:
+    from sentence_transformers import SentenceTransformer
+
+    SENTENCE_TRANSFORMERS_AVAILABLE = True
+except ImportError:
+    SentenceTransformer = None  # type: ignore
+    SENTENCE_TRANSFORMERS_AVAILABLE = False
 
 from .llms import LLMClient
 from .nodes import (
@@ -59,6 +66,9 @@ class DeepSearchAgent:
         # 初始化聚类小模型（懒加载）
         self._clustering_model = None
 
+        # sentence-transformers 缺失时自动降级，不影响主流程
+        self._clustering_available = SENTENCE_TRANSFORMERS_AVAILABLE
+
         # 初始化情感分析器
         self.sentiment_analyzer = multilingual_sentiment_analyzer
 
@@ -75,6 +85,10 @@ class DeepSearchAgent:
         logger.info(f"使用LLM: {self.llm_client.get_model_info()}")
         logger.info(f"搜索工具集: MediaCrawlerDB (支持5种本地数据库查询工具)")
         logger.info(f"情感分析: WeiboMultilingualSentiment (支持22种语言的情感分析)")
+        if not self._clustering_available:
+            logger.warning(
+                "sentence-transformers 未安装，聚类采样功能将跳过并回退到简单截断。"
+            )
 
     def _initialize_llm(self) -> LLMClient:
         """初始化LLM客户端"""
@@ -94,8 +108,11 @@ class DeepSearchAgent:
 
     def _get_clustering_model(self):
         """懒加载聚类模型"""
+        if not self._clustering_available:
+            raise ImportError("sentence-transformers is not installed")
         if self._clustering_model is None:
             logger.info("  加载聚类模型 (paraphrase-multilingual-MiniLM-L12-v2)...")
+            assert SentenceTransformer is not None
             self._clustering_model = SentenceTransformer(
                 "paraphrase-multilingual-MiniLM-L12-v2"
             )

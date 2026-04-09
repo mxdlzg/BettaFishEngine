@@ -358,9 +358,12 @@ This section contains detailed configuration instructions:[Configure the depende
 # Basic dependency installation
 pip install -r requirements.txt
 
+# Optional: install heavy ML dependencies only when using InsightEngine local clustering/sentiment models
+pip install -r requirements-insight-ml.txt
+
 # uv version command (faster installation)
 uv pip install -r requirements.txt
-# If you do not want to use the local sentiment analysis model (which has low computational requirements and defaults to the CPU version), you can comment out the 'Machine Learning' section in this file before executing the command.
+uv pip install -r requirements-insight-ml.txt
 ```
 
 ### 4. Install Playwright Browser Drivers
