@@ -219,6 +219,15 @@ def _env_bool(name: str, default: bool) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _ensure_request_id(context: Optional[Dict[str, Any]] = None) -> str:
+    ctx = context if isinstance(context, dict) else {}
+    request_id = str(ctx.get("request_id") or "").strip()
+    if not request_id:
+        request_id = str(uuid.uuid4())
+        ctx["request_id"] = request_id
+    return request_id
+
+
 async def _get_insight_missing_tables(required_tables: List[str]) -> List[str]:
     from InsightEngine.utils.db import get_async_engine
 
@@ -268,11 +277,15 @@ def _force_stop_thread(thread: threading.Thread) -> bool:
 class _QueueLogHandler(logging.Handler):
     """Forward Python logging records to the stream queue as log events."""
 
-    def __init__(self, queue: Queue):
+    def __init__(self, queue: Queue, target_thread_id: int, request_id: str):
         super().__init__()
         self.queue = queue
+        self.target_thread_id = target_thread_id
+        self.request_id = request_id
 
     def emit(self, record: logging.LogRecord) -> None:
+        if int(getattr(record, "thread", -1)) != int(self.target_thread_id):
+            return
         try:
             self.queue.put(
                 (
@@ -283,6 +296,7 @@ class _QueueLogHandler(logging.Handler):
                         "logger": record.name,
                         "level": record.levelname,
                         "message": record.getMessage(),
+                        "request_id": self.request_id,
                     },
                 )
             )
@@ -342,18 +356,22 @@ def _stream_with_heartbeat(run_fn, stream_meta: Dict[str, Any], request: Optiona
     disconnect_poll_interval = float(os.getenv("ENGINE_STREAM_DISCONNECT_POLL_INTERVAL", "5.0"))
     if disconnect_poll_interval < 0.2:
         disconnect_poll_interval = 0.2
+    request_id = str(stream_meta.get("request_id") or uuid.uuid4())
 
     def worker() -> None:
+        worker_thread_id = threading.get_ident()
         root_logger = logging.getLogger()
-        queue_handler = _QueueLogHandler(queue)
-        stdout_writer = _QueueStreamWriter(queue, "stdout")
-        stderr_writer = _QueueStreamWriter(queue, "stderr")
+        queue_handler = _QueueLogHandler(queue, target_thread_id=worker_thread_id, request_id=request_id)
         loguru_logger = None
         loguru_sink_id = None
 
         def _emit_loguru(message) -> None:
             try:
                 record = message.record
+                record_thread = record.get("thread")
+                record_thread_id = getattr(record_thread, "id", None)
+                if int(record_thread_id or -1) != int(worker_thread_id):
+                    return
                 queue.put(
                     (
                         "log",
@@ -363,6 +381,7 @@ def _stream_with_heartbeat(run_fn, stream_meta: Dict[str, Any], request: Optiona
                             "logger": record.get("name", ""),
                             "level": getattr(record.get("level"), "name", "INFO"),
                             "message": record.get("message", ""),
+                            "request_id": request_id,
                         },
                     )
                 )
@@ -375,7 +394,12 @@ def _stream_with_heartbeat(run_fn, stream_meta: Dict[str, Any], request: Optiona
             from loguru import logger as _loguru_logger  # type: ignore
 
             loguru_logger = _loguru_logger
-            loguru_sink_id = loguru_logger.add(_emit_loguru, level="DEBUG", enqueue=False)
+            loguru_sink_id = loguru_logger.add(
+                _emit_loguru,
+                level="DEBUG",
+                enqueue=False,
+                filter=lambda r: int(getattr(r.get("thread"), "id", -1)) == int(worker_thread_id),
+            )
         except Exception:
             loguru_logger = None
             loguru_sink_id = None
@@ -390,23 +414,26 @@ def _stream_with_heartbeat(run_fn, stream_meta: Dict[str, Any], request: Optiona
                         "level": "INFO",
                         "message": "stream worker started",
                         "meta": stream_meta,
+                        "request_id": request_id,
                     },
                 )
             )
-            with redirect_stdout(stdout_writer), redirect_stderr(stderr_writer):
-                result = run_fn()
-                queue.put(
-                    (
-                        "log",
-                        {
-                            "timestamp": _iso_now(),
-                            "source": "gateway",
-                            "level": "INFO",
-                            "message": "engine execution completed",
-                        },
-                    )
+            # Do not globally redirect stdout/stderr here. It is process-global and causes
+            # cross-request log mixing under concurrent stream requests.
+            result = run_fn()
+            queue.put(
+                (
+                    "log",
+                    {
+                        "timestamp": _iso_now(),
+                        "source": "gateway",
+                        "level": "INFO",
+                        "message": "engine execution completed",
+                        "request_id": request_id,
+                    },
                 )
-                queue.put(("result", result))
+            )
+            queue.put(("result", result))
         except HTTPException as exc:
             queue.put(
                 (
@@ -416,6 +443,7 @@ def _stream_with_heartbeat(run_fn, stream_meta: Dict[str, Any], request: Optiona
                         "source": "gateway",
                         "level": "ERROR",
                         "message": f"HTTPException: {exc.detail}",
+                        "request_id": request_id,
                     },
                 )
             )
@@ -429,6 +457,7 @@ def _stream_with_heartbeat(run_fn, stream_meta: Dict[str, Any], request: Optiona
                         "source": "gateway",
                         "level": "WARNING",
                         "message": "engine execution cancelled after client disconnect",
+                        "request_id": request_id,
                     },
                 )
             )
@@ -441,13 +470,12 @@ def _stream_with_heartbeat(run_fn, stream_meta: Dict[str, Any], request: Optiona
                         "source": "gateway",
                         "level": "ERROR",
                         "message": f"Unhandled exception: {exc}",
+                        "request_id": request_id,
                     },
                 )
             )
             queue.put(("error", {"status_code": 500, "detail": str(exc)}))
         finally:
-            stdout_writer.flush()
-            stderr_writer.flush()
             root_logger.removeHandler(queue_handler)
             if loguru_logger is not None and loguru_sink_id is not None:
                 try:
@@ -486,6 +514,7 @@ def _stream_with_heartbeat(run_fn, stream_meta: Dict[str, Any], request: Optiona
                             "level": "DEBUG",
                             "message": "engine still running",
                             "elapsed_seconds": round(now - started_at, 1),
+                            "request_id": request_id,
                         },
                     )
                     last_heartbeat_at = now
@@ -911,6 +940,7 @@ def research_dispatch_stream(body: ResearchRequest, request: Request, _auth: Non
     engine = str(body.engine or "").strip().lower()
     query = body.query.strip()
     context = body.context or {}
+    request_id = _ensure_request_id(context)
 
     if not engine:
         raise HTTPException(status_code=400, detail="missing field: engine")
@@ -923,6 +953,7 @@ def research_dispatch_stream(body: ResearchRequest, request: Request, _auth: Non
             "engine": engine,
             "query": query,
             "mode": "research_stream",
+            "request_id": request_id,
         },
         request,
     )
@@ -942,6 +973,7 @@ def research_engine(engine: str, body: ResearchRequest, _auth: None = Depends(_r
 def research_engine_stream(engine: str, body: ResearchRequest, request: Request, _auth: None = Depends(_require_auth)):
     query = body.query.strip()
     context = body.context or {}
+    request_id = _ensure_request_id(context)
     if not query:
         raise HTTPException(status_code=400, detail="missing field: query")
 
@@ -951,6 +983,7 @@ def research_engine_stream(engine: str, body: ResearchRequest, request: Request,
             "engine": str(engine).strip().lower(),
             "query": query,
             "mode": "research_stream",
+            "request_id": request_id,
         },
         request,
     )
@@ -1003,6 +1036,8 @@ def report_engine(body: ReportRequest, _auth: None = Depends(_require_auth)):
 @app.post("/v1/report/stream")
 def report_engine_stream(body: ReportRequest, request: Request, _auth: None = Depends(_require_auth)):
     query = body.query.strip()
+    context = body.context or {}
+    request_id = _ensure_request_id(context)
     if not query:
         raise HTTPException(status_code=400, detail="missing field: query")
     if not isinstance(body.merged_result, dict):
@@ -1014,6 +1049,7 @@ def report_engine_stream(body: ReportRequest, request: Request, _auth: None = De
             "engine": "report",
             "query": query,
             "mode": "report_stream",
+            "request_id": request_id,
         },
         request,
     )
@@ -1032,11 +1068,14 @@ def forum_engine(body: ForumRequest, _auth: None = Depends(_require_auth)):
 
 @app.post("/v1/forum/host-speech/stream")
 def forum_engine_stream(body: ForumRequest, request: Request, _auth: None = Depends(_require_auth)):
+    context = body.context or {}
+    request_id = _ensure_request_id(context)
     return _stream_with_heartbeat(
         lambda: _run_forum_engine(body),
         {
             "engine": "forum",
             "mode": "forum_stream",
+            "request_id": request_id,
         },
         request,
     )
