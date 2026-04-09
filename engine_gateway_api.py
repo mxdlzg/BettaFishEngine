@@ -20,12 +20,18 @@ import re
 import logging
 import uuid
 import copy
+import json
+import time
+import threading
+from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple, Union
+from queue import Queue, Empty
 
 import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 
@@ -196,6 +202,140 @@ def _build_manifest(engine: str, request_id: str, context: Optional[Dict[str, An
         "task_id": str(ctx.get("task_id", "")),
         "timestamp": _iso_now(),
     }
+
+
+def _sse_event(event: str, data: Dict[str, Any]) -> str:
+    payload = json.dumps(data, ensure_ascii=False)
+    return f"event: {event}\ndata: {payload}\n\n"
+
+
+class _QueueLogHandler(logging.Handler):
+    """Forward Python logging records to the stream queue as log events."""
+
+    def __init__(self, queue: Queue):
+        super().__init__()
+        self.queue = queue
+
+    def emit(self, record: logging.LogRecord) -> None:
+        try:
+            self.queue.put(
+                (
+                    "log",
+                    {
+                        "timestamp": _iso_now(),
+                        "source": "logging",
+                        "logger": record.name,
+                        "level": record.levelname,
+                        "message": record.getMessage(),
+                    },
+                )
+            )
+        except Exception:
+            pass
+
+
+class _QueueStreamWriter:
+    """Capture print/stdout/stderr and forward complete lines to the stream queue."""
+
+    def __init__(self, queue: Queue, source: str):
+        self.queue = queue
+        self.source = source
+        self._buffer = ""
+
+    def write(self, text: str) -> int:
+        if not text:
+            return 0
+        self._buffer += text
+        while "\n" in self._buffer:
+            line, self._buffer = self._buffer.split("\n", 1)
+            line = line.rstrip("\r")
+            if line.strip():
+                self.queue.put(
+                    (
+                        "log",
+                        {
+                            "timestamp": _iso_now(),
+                            "source": self.source,
+                            "level": "INFO",
+                            "message": line,
+                        },
+                    )
+                )
+        return len(text)
+
+    def flush(self) -> None:
+        line = self._buffer.strip()
+        if line:
+            self.queue.put(
+                (
+                    "log",
+                    {
+                        "timestamp": _iso_now(),
+                        "source": self.source,
+                        "level": "INFO",
+                        "message": line,
+                    },
+                )
+            )
+        self._buffer = ""
+
+
+def _stream_with_heartbeat(run_fn, stream_meta: Dict[str, Any]) -> StreamingResponse:
+    queue: Queue = Queue()
+
+    def worker() -> None:
+        root_logger = logging.getLogger()
+        queue_handler = _QueueLogHandler(queue)
+        stdout_writer = _QueueStreamWriter(queue, "stdout")
+        stderr_writer = _QueueStreamWriter(queue, "stderr")
+        root_logger.addHandler(queue_handler)
+        try:
+            with redirect_stdout(stdout_writer), redirect_stderr(stderr_writer):
+                result = run_fn()
+                queue.put(("result", result))
+        except HTTPException as exc:
+            queue.put(("error", {"status_code": exc.status_code, "detail": exc.detail}))
+        except Exception as exc:
+            queue.put(("error", {"status_code": 500, "detail": str(exc)}))
+        finally:
+            stdout_writer.flush()
+            stderr_writer.flush()
+            root_logger.removeHandler(queue_handler)
+
+    threading.Thread(target=worker, daemon=True).start()
+
+    def event_generator():
+        started_at = time.time()
+        yield _sse_event("started", {"timestamp": _iso_now(), **stream_meta})
+        while True:
+            try:
+                item_type, payload = queue.get(timeout=1.0)
+            except Empty:
+                yield _sse_event("heartbeat", {"elapsed_seconds": round(time.time() - started_at, 1)})
+                continue
+
+            if item_type == "log":
+                yield _sse_event("log", payload if isinstance(payload, dict) else {"message": str(payload)})
+                continue
+
+            if item_type == "result":
+                yield _sse_event("result", payload if isinstance(payload, dict) else {"result": payload})
+                yield _sse_event("done", {"ok": True, "elapsed_seconds": round(time.time() - started_at, 1)})
+                break
+
+            yield _sse_event("error", payload if isinstance(payload, dict) else {"detail": str(payload)})
+            yield _sse_event("done", {"ok": False, "elapsed_seconds": round(time.time() - started_at, 1)})
+            break
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 def _clamp_optional_int(value: Optional[int], minimum: int, maximum: int) -> Optional[int]:
@@ -520,8 +660,12 @@ def capabilities():
             "research_query": "/v1/research/query",
             "research_media": "/v1/research/media",
             "research_insight": "/v1/research/insight",
+            "research_stream_dispatch": "/v1/research/stream",
+            "research_stream_engine": "/v1/research/{engine}/stream",
             "forum_host_speech": "/v1/forum/host-speech",
+            "forum_host_speech_stream": "/v1/forum/host-speech/stream",
             "report": "/v1/report",
+            "report_stream": "/v1/report/stream",
             "health": "/healthz",
             "docs": "/docs",
             "redoc": "/redoc",
@@ -572,6 +716,44 @@ def research_engine(engine: str, body: ResearchRequest, _auth: None = Depends(_r
     return _run_research_impl(engine, query, body.save_report, body.export_formats, context, body)
 
 
+@app.post("/v1/research/stream")
+def research_dispatch_stream(body: ResearchRequest, _auth: None = Depends(_require_auth)):
+    engine = str(body.engine or "").strip().lower()
+    query = body.query.strip()
+    context = body.context or {}
+
+    if not engine:
+        raise HTTPException(status_code=400, detail="missing field: engine")
+    if not query:
+        raise HTTPException(status_code=400, detail="missing field: query")
+
+    return _stream_with_heartbeat(
+        lambda: _run_research_impl(engine, query, body.save_report, body.export_formats, context, body),
+        {
+            "engine": engine,
+            "query": query,
+            "mode": "research_stream",
+        },
+    )
+
+
+@app.post("/v1/research/{engine}/stream")
+def research_engine_stream(engine: str, body: ResearchRequest, _auth: None = Depends(_require_auth)):
+    query = body.query.strip()
+    context = body.context or {}
+    if not query:
+        raise HTTPException(status_code=400, detail="missing field: query")
+
+    return _stream_with_heartbeat(
+        lambda: _run_research_impl(engine, query, body.save_report, body.export_formats, context, body),
+        {
+            "engine": str(engine).strip().lower(),
+            "query": query,
+            "mode": "research_stream",
+        },
+    )
+
+
 def _run_research_impl(
     engine: str,
     query: str,
@@ -616,6 +798,24 @@ def report_engine(body: ReportRequest, _auth: None = Depends(_require_auth)):
         raise HTTPException(status_code=500, detail=f"report engine failed: {exc}")
 
 
+@app.post("/v1/report/stream")
+def report_engine_stream(body: ReportRequest, _auth: None = Depends(_require_auth)):
+    query = body.query.strip()
+    if not query:
+        raise HTTPException(status_code=400, detail="missing field: query")
+    if not isinstance(body.merged_result, dict):
+        body.merged_result = {}
+
+    return _stream_with_heartbeat(
+        lambda: _run_report_engine(body),
+        {
+            "engine": "report",
+            "query": query,
+            "mode": "report_stream",
+        },
+    )
+
+
 @app.post("/v1/forum/host-speech")
 def forum_engine(body: ForumRequest, _auth: None = Depends(_require_auth)):
     try:
@@ -625,6 +825,17 @@ def forum_engine(body: ForumRequest, _auth: None = Depends(_require_auth)):
     except Exception as exc:
         logger.exception(f"forum engine failed: {exc}")
         raise HTTPException(status_code=500, detail=f"forum engine failed: {exc}")
+
+
+@app.post("/v1/forum/host-speech/stream")
+def forum_engine_stream(body: ForumRequest, _auth: None = Depends(_require_auth)):
+    return _stream_with_heartbeat(
+        lambda: _run_forum_engine(body),
+        {
+            "engine": "forum",
+            "mode": "forum_stream",
+        },
+    )
 
 
 if __name__ == "__main__":
