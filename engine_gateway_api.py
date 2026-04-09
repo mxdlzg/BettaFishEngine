@@ -15,6 +15,7 @@ This API is designed to be consumed by independently deployed clients.
 
 from __future__ import annotations
 
+import asyncio
 import os
 import re
 import logging
@@ -34,6 +35,7 @@ import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import inspect
 
 
 logging.basicConfig(
@@ -189,6 +191,42 @@ class EngineRuntime:
 
 
 ENGINE_RUNTIME = EngineRuntime()
+
+
+INSIGHT_REQUIRED_TABLES = [
+    "bilibili_video",
+    "bilibili_video_comment",
+    "douyin_aweme",
+    "douyin_aweme_comment",
+    "kuaishou_video",
+    "kuaishou_video_comment",
+    "weibo_note",
+    "weibo_note_comment",
+    "xhs_note",
+    "xhs_note_comment",
+    "zhihu_content",
+    "zhihu_comment",
+    "tieba_note",
+    "tieba_comment",
+    "daily_news",
+]
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+async def _get_insight_missing_tables(required_tables: List[str]) -> List[str]:
+    from InsightEngine.utils.db import get_async_engine
+
+    engine = get_async_engine()
+    async with engine.connect() as conn:
+        existing_tables = await conn.run_sync(lambda sync_conn: inspect(sync_conn).get_table_names())
+    existing_set = {str(t).lower() for t in existing_tables}
+    return [table for table in required_tables if table.lower() not in existing_set]
 
 
 def _iso_now() -> str:
@@ -821,11 +859,34 @@ def capabilities():
 
 
 @app.on_event("startup")
-def startup_initialize_runtime():
+async def startup_initialize_runtime():
     """Initialize embedded engine runtime at service startup."""
     try:
         ENGINE_RUNTIME.initialize()
         logger.info("Embedded engine runtime initialized")
+
+        check_enabled = _env_bool("ENGINE_INSIGHT_DB_CHECK_ON_STARTUP", True)
+        fail_fast = _env_bool("ENGINE_INSIGHT_DB_FAIL_FAST", False)
+
+        if check_enabled:
+            missing_tables = await _get_insight_missing_tables(INSIGHT_REQUIRED_TABLES)
+            if missing_tables:
+                logger.warning(
+                    "InsightEngine dependency check: missing %d tables: %s",
+                    len(missing_tables),
+                    ", ".join(missing_tables),
+                )
+                if fail_fast:
+                    raise RuntimeError(
+                        "InsightEngine dependency check failed (missing tables): "
+                        + ", ".join(missing_tables)
+                    )
+            else:
+                logger.info(
+                    "InsightEngine dependency check passed (%d/%d tables found)",
+                    len(INSIGHT_REQUIRED_TABLES),
+                    len(INSIGHT_REQUIRED_TABLES),
+                )
     except Exception as exc:
         logger.exception(f"Failed to initialize embedded engine runtime: {exc}")
         raise RuntimeError(f"Engine runtime initialization failed: {exc}") from exc

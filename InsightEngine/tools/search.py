@@ -25,6 +25,7 @@ V3.0 核心更新:
 
 import os
 import json
+import re
 from loguru import logger
 import asyncio
 from typing import List, Dict, Any, Optional, Literal
@@ -73,9 +74,22 @@ class MediaCrawlerDB:
         """
         初始化客户端。
         """
-        pass
+        self._missing_tables_reported = set()
+
+    def _extract_missing_table_name(self, query: str, error_message: str) -> Optional[str]:
+        # PostgreSQL UndefinedTableError usually looks like: relation "table_name" does not exist
+        match = re.search(r'relation\s+"([^"]+)"\s+does not exist', error_message, flags=re.IGNORECASE)
+        if match:
+            return match.group(1)
+
+        # Fallback: infer table name from query.
+        from_match = re.search(r'\bFROM\s+[`\"]?([a-zA-Z0-9_\.]+)[`\"]?', query, flags=re.IGNORECASE)
+        if from_match:
+            return from_match.group(1).split(".")[-1]
+
+        return None
         
-    def _execute_query(self, query: str, params: tuple = None) -> List[Dict[str, Any]]:
+    def _execute_query(self, query: str, params: Any = None) -> List[Dict[str, Any]]:
         try:
             # 获取或创建event loop
             try:
@@ -91,7 +105,14 @@ class MediaCrawlerDB:
             return loop.run_until_complete(fetch_all(query, params))
         
         except Exception as e:
-            logger.exception(f"数据库查询时发生错误: {e}")
+            err_msg = str(e)
+            if "does not exist" in err_msg and ("UndefinedTableError" in err_msg or "relation \"" in err_msg):
+                table_name = self._extract_missing_table_name(query, err_msg) or "<unknown_table>"
+                if table_name not in self._missing_tables_reported:
+                    logger.warning(f"数据库缺少表 {table_name}，将跳过该数据源")
+                    self._missing_tables_reported.add(table_name)
+            else:
+                logger.exception(f"数据库查询时发生错误: {e}")
             return []
 
     @staticmethod
@@ -110,8 +131,19 @@ class MediaCrawlerDB:
     _table_columns_cache = {}
     def _get_table_columns(self, table_name: str) -> List[str]:
         if table_name in self._table_columns_cache: return self._table_columns_cache[table_name]
-        results = self._execute_query(f"SHOW COLUMNS FROM `{table_name}`")
-        columns = [row['Field'] for row in results] if results else []
+        if settings.DB_DIALECT == 'postgresql':
+            results = self._execute_query(
+                (
+                    "SELECT column_name "
+                    "FROM information_schema.columns "
+                    "WHERE table_schema = current_schema() AND table_name = :table_name"
+                ),
+                {"table_name": table_name},
+            )
+            columns = [row['column_name'] for row in results] if results else []
+        else:
+            results = self._execute_query(f"SHOW COLUMNS FROM `{table_name}`")
+            columns = [row['Field'] for row in results] if results else []
         self._table_columns_cache[table_name] = columns
         return columns
 
