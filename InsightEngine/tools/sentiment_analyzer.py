@@ -29,7 +29,7 @@ except ImportError:
 
 
 # INFO：若想跳过情感分析，可手动切换此开关为False
-SENTIMENT_ANALYSIS_ENABLED = True
+SENTIMENT_ANALYSIS_ENABLED = False
 
 
 def _describe_missing_dependencies() -> str:
