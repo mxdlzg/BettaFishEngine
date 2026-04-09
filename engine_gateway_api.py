@@ -63,6 +63,11 @@ class ReportRequest(BaseModel):
     context: Dict[str, Any] = Field(default_factory=dict, description="Optional context metadata")
 
 
+class ForumRequest(BaseModel):
+    forum_logs: Union[str, List[str]] = Field(..., description="Forum logs as text or line list")
+    context: Dict[str, Any] = Field(default_factory=dict, description="Optional context metadata")
+
+
 class EngineRuntime:
     """
     Runtime container for embedded engine classes/settings.
@@ -81,6 +86,8 @@ class EngineRuntime:
         self.insight_settings = None
         self.report_agent_class = None
         self.report_settings = None
+        self.forum_host_class = None
+        self.forum_host_params: Dict[str, Any] = {}
 
     def initialize(self) -> None:
         project_root = Path(__file__).resolve().parent
@@ -90,6 +97,7 @@ class EngineRuntime:
             project_root / "MediaEngine" / "agent.py",
             project_root / "InsightEngine" / "agent.py",
             project_root / "ReportEngine" / "agent.py",
+            project_root / "ForumEngine" / "llm_host.py",
         ]
         missing = [str(p) for p in required_files if not p.exists()]
         if missing:
@@ -103,6 +111,8 @@ class EngineRuntime:
         from InsightEngine.utils.config import settings as insight_settings
         from ReportEngine.agent import ReportAgent
         from ReportEngine.utils.config import settings as report_settings
+        from ForumEngine.llm_host import ForumHost
+        from config import settings as root_settings
 
         self.query_agent_class = QueryAgent
         self.query_settings = query_settings
@@ -112,6 +122,12 @@ class EngineRuntime:
         self.insight_settings = insight_settings
         self.report_agent_class = ReportAgent
         self.report_settings = report_settings
+        self.forum_host_class = ForumHost
+        self.forum_host_params = {
+            "api_key": root_settings.FORUM_HOST_API_KEY,
+            "base_url": root_settings.FORUM_HOST_BASE_URL,
+            "model_name": root_settings.FORUM_HOST_MODEL_NAME,
+        }
         self.ready = True
 
     def ensure_ready(self) -> None:
@@ -133,6 +149,10 @@ class EngineRuntime:
     def create_report_agent(self):
         self.ensure_ready()
         return self.report_agent_class(config=self.report_settings)
+
+    def create_forum_host(self):
+        self.ensure_ready()
+        return self.forum_host_class(**self.forum_host_params)
 
 
 ENGINE_RUNTIME = EngineRuntime()
@@ -374,6 +394,34 @@ def _run_report_engine(body: ReportRequest) -> Dict[str, Any]:
     }
 
 
+def _normalize_forum_logs(raw_logs: Union[str, List[str]]) -> List[str]:
+    if isinstance(raw_logs, list):
+        return [str(x) for x in raw_logs if str(x).strip()]
+    if isinstance(raw_logs, str):
+        return [line for line in raw_logs.splitlines() if line.strip()]
+    return []
+
+
+def _run_forum_engine(body: ForumRequest) -> Dict[str, Any]:
+    context = body.context or {}
+    request_id = str(context.get("request_id") or uuid.uuid4())
+    forum_logs = _normalize_forum_logs(body.forum_logs)
+
+    if not forum_logs:
+        raise HTTPException(status_code=400, detail="forum_logs is empty")
+
+    host = ENGINE_RUNTIME.create_forum_host()
+    speech = host.generate_host_speech(forum_logs)
+    if not speech:
+        raise HTTPException(status_code=502, detail="ForumEngine failed to generate host speech")
+
+    return {
+        "host_speech": speech,
+        "manifest": _build_manifest("ForumEngine", request_id, context),
+        "logs": ["ForumEngine completed"],
+    }
+
+
 @app.get("/healthz")
 def healthz():
     return {
@@ -388,12 +436,13 @@ def healthz():
 def capabilities():
     return {
         "service": "engine-gateway",
-        "engines": ["query", "media", "insight", "report"],
+        "engines": ["query", "media", "insight", "forum", "report"],
         "endpoints": {
             "research_dispatch": "/v1/research",
             "research_query": "/v1/research/query",
             "research_media": "/v1/research/media",
             "research_insight": "/v1/research/insight",
+            "forum_host_speech": "/v1/forum/host-speech",
             "report": "/v1/report",
             "health": "/healthz",
             "docs": "/docs",
@@ -485,6 +534,17 @@ def report_engine(body: ReportRequest, _auth: None = Depends(_require_auth)):
     except Exception as exc:
         logger.exception(f"report engine failed: {exc}")
         raise HTTPException(status_code=500, detail=f"report engine failed: {exc}")
+
+
+@app.post("/v1/forum/host-speech")
+def forum_engine(body: ForumRequest, _auth: None = Depends(_require_auth)):
+    try:
+        return _run_forum_engine(body)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception(f"forum engine failed: {exc}")
+        raise HTTPException(status_code=500, detail=f"forum engine failed: {exc}")
 
 
 if __name__ == "__main__":
