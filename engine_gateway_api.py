@@ -19,6 +19,7 @@ import os
 import re
 import logging
 import uuid
+import copy
 from pathlib import Path
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -47,6 +48,11 @@ class ResearchRequest(BaseModel):
     context: Dict[str, Any] = Field(default_factory=dict, description="Optional context")
     save_report: bool = Field(default=True, description="Whether engine should save report files")
     export_formats: Optional[List[str]] = Field(default=None, description="Optional export formats for QueryEngine")
+    discussion_intensity: str = Field(default="normal", description="low|normal|high")
+    max_reflections: Optional[int] = Field(default=None, description="Override engine reflection rounds")
+    max_paragraphs: Optional[int] = Field(default=None, description="Override max report paragraphs")
+    max_search_results: Optional[int] = Field(default=None, description="Override max search results")
+    search_timeout: Optional[int] = Field(default=None, description="Override search timeout in seconds")
     engine: Optional[str] = Field(default=None, description="query|media|insight (only for /v1/research)")
 
 
@@ -65,6 +71,8 @@ class ReportRequest(BaseModel):
 
 class ForumRequest(BaseModel):
     forum_logs: Union[str, List[str]] = Field(..., description="Forum logs as text or line list")
+    max_lines: Optional[int] = Field(default=60, description="Max forum log lines to include")
+    max_chars: Optional[int] = Field(default=16000, description="Max total chars for forum logs")
     context: Dict[str, Any] = Field(default_factory=dict, description="Optional context metadata")
 
 
@@ -134,17 +142,35 @@ class EngineRuntime:
         if not self.ready:
             raise RuntimeError("Engine runtime is not initialized")
 
-    def create_query_agent(self):
-        self.ensure_ready()
-        return self.query_agent_class(config=self.query_settings)
+    def _clone_settings(self, settings_obj: Any) -> Any:
+        if hasattr(settings_obj, "model_copy"):
+            return settings_obj.model_copy(deep=True)
+        return copy.deepcopy(settings_obj)
 
-    def create_media_agent(self):
-        self.ensure_ready()
-        return self.media_agent_class(config=self.media_settings)
+    def _apply_overrides(self, cfg: Any, overrides: Dict[str, int]) -> None:
+        for key, value in overrides.items():
+            if value is None:
+                continue
+            if hasattr(cfg, key):
+                setattr(cfg, key, value)
 
-    def create_insight_agent(self):
+    def create_query_agent(self, overrides: Optional[Dict[str, int]] = None):
         self.ensure_ready()
-        return self.insight_agent_class(config=self.insight_settings)
+        cfg = self._clone_settings(self.query_settings)
+        self._apply_overrides(cfg, overrides or {})
+        return self.query_agent_class(config=cfg)
+
+    def create_media_agent(self, overrides: Optional[Dict[str, int]] = None):
+        self.ensure_ready()
+        cfg = self._clone_settings(self.media_settings)
+        self._apply_overrides(cfg, overrides or {})
+        return self.media_agent_class(config=cfg)
+
+    def create_insight_agent(self, overrides: Optional[Dict[str, int]] = None):
+        self.ensure_ready()
+        cfg = self._clone_settings(self.insight_settings)
+        self._apply_overrides(cfg, overrides or {})
+        return self.insight_agent_class(config=cfg)
 
     def create_report_agent(self):
         self.ensure_ready()
@@ -172,8 +198,46 @@ def _build_manifest(engine: str, request_id: str, context: Optional[Dict[str, An
     }
 
 
-def _local_query_engine(query: str, save_report: bool, export_formats: Optional[List[str]]) -> Dict[str, Any]:
-    agent = ENGINE_RUNTIME.create_query_agent()
+def _clamp_optional_int(value: Optional[int], minimum: int, maximum: int) -> Optional[int]:
+    if value is None:
+        return None
+    return max(minimum, min(maximum, int(value)))
+
+
+def _build_runtime_overrides(body: ResearchRequest) -> Dict[str, int]:
+    overrides: Dict[str, int] = {
+        "MAX_REFLECTIONS": _clamp_optional_int(body.max_reflections, 0, 8),
+        "MAX_PARAGRAPHS": _clamp_optional_int(body.max_paragraphs, 1, 12),
+        "MAX_SEARCH_RESULTS": _clamp_optional_int(body.max_search_results, 1, 100),
+        "SEARCH_TIMEOUT": _clamp_optional_int(body.search_timeout, 10, 600),
+    }
+
+    intensity = (body.discussion_intensity or "normal").strip().lower()
+    presets: Dict[str, Dict[str, int]] = {
+        "low": {
+            "MAX_REFLECTIONS": 1,
+            "MAX_PARAGRAPHS": 3,
+            "MAX_SEARCH_RESULTS": 8,
+            "SEARCH_TIMEOUT": 90,
+        },
+        "high": {
+            "MAX_REFLECTIONS": 4,
+            "MAX_PARAGRAPHS": 8,
+            "MAX_SEARCH_RESULTS": 30,
+            "SEARCH_TIMEOUT": 300,
+        },
+    }
+
+    if intensity in presets:
+        for k, v in presets[intensity].items():
+            if overrides.get(k) is None:
+                overrides[k] = v
+
+    return {k: v for k, v in overrides.items() if v is not None}
+
+
+def _local_query_engine(query: str, save_report: bool, export_formats: Optional[List[str]], overrides: Dict[str, int]) -> Dict[str, Any]:
+    agent = ENGINE_RUNTIME.create_query_agent(overrides=overrides)
     report = agent.research(query=query, save_report=save_report, export_formats=export_formats)
     summary = report if isinstance(report, str) else str(report)
     return {
@@ -184,8 +248,8 @@ def _local_query_engine(query: str, save_report: bool, export_formats: Optional[
     }
 
 
-def _local_media_engine(query: str, save_report: bool) -> Dict[str, Any]:
-    agent = ENGINE_RUNTIME.create_media_agent()
+def _local_media_engine(query: str, save_report: bool, overrides: Dict[str, int]) -> Dict[str, Any]:
+    agent = ENGINE_RUNTIME.create_media_agent(overrides=overrides)
     report = agent.research(query=query, save_report=save_report)
     summary = report if isinstance(report, str) else str(report)
     return {
@@ -198,8 +262,8 @@ def _local_media_engine(query: str, save_report: bool) -> Dict[str, Any]:
     }
 
 
-def _local_insight_engine(query: str, save_report: bool) -> Dict[str, Any]:
-    agent = ENGINE_RUNTIME.create_insight_agent()
+def _local_insight_engine(query: str, save_report: bool, overrides: Dict[str, int]) -> Dict[str, Any]:
+    agent = ENGINE_RUNTIME.create_insight_agent(overrides=overrides)
     report = agent.research(query=query, save_report=save_report)
     summary = report if isinstance(report, str) else str(report)
     return {
@@ -259,9 +323,9 @@ def _require_auth(authorization: Optional[str] = Header(default=None)) -> None:
         raise HTTPException(status_code=401, detail=f"unauthorized: {reason}")
 
 
-def _run_query_engine(query: str, save_report: bool, export_formats: Optional[List[str]], context: Dict[str, Any]) -> Dict[str, Any]:
+def _run_query_engine(query: str, save_report: bool, export_formats: Optional[List[str]], context: Dict[str, Any], overrides: Dict[str, int]) -> Dict[str, Any]:
     request_id = str(context.get("request_id") or uuid.uuid4())
-    data = _local_query_engine(query, save_report, export_formats)
+    data = _local_query_engine(query, save_report, export_formats, overrides)
     summary = data.get("summary") or data.get("report") or ""
 
     return {
@@ -274,9 +338,9 @@ def _run_query_engine(query: str, save_report: bool, export_formats: Optional[Li
     }
 
 
-def _run_media_engine(query: str, save_report: bool, context: Dict[str, Any]) -> Dict[str, Any]:
+def _run_media_engine(query: str, save_report: bool, context: Dict[str, Any], overrides: Dict[str, int]) -> Dict[str, Any]:
     request_id = str(context.get("request_id") or uuid.uuid4())
-    data = _local_media_engine(query, save_report)
+    data = _local_media_engine(query, save_report, overrides)
     summary = data.get("summary") or data.get("report") or ""
 
     return {
@@ -291,9 +355,9 @@ def _run_media_engine(query: str, save_report: bool, context: Dict[str, Any]) ->
     }
 
 
-def _run_insight_engine(query: str, save_report: bool, context: Dict[str, Any]) -> Dict[str, Any]:
+def _run_insight_engine(query: str, save_report: bool, context: Dict[str, Any], overrides: Dict[str, int]) -> Dict[str, Any]:
     request_id = str(context.get("request_id") or uuid.uuid4())
-    data = _local_insight_engine(query, save_report)
+    data = _local_insight_engine(query, save_report, overrides)
     summary = data.get("summary") or data.get("report") or ""
 
     return {
@@ -394,18 +458,32 @@ def _run_report_engine(body: ReportRequest) -> Dict[str, Any]:
     }
 
 
-def _normalize_forum_logs(raw_logs: Union[str, List[str]]) -> List[str]:
+def _normalize_forum_logs(raw_logs: Union[str, List[str]], max_lines: Optional[int], max_chars: Optional[int]) -> List[str]:
     if isinstance(raw_logs, list):
-        return [str(x) for x in raw_logs if str(x).strip()]
-    if isinstance(raw_logs, str):
-        return [line for line in raw_logs.splitlines() if line.strip()]
-    return []
+        lines = [str(x) for x in raw_logs if str(x).strip()]
+    elif isinstance(raw_logs, str):
+        lines = [line for line in raw_logs.splitlines() if line.strip()]
+    else:
+        lines = []
+
+    if max_lines is not None:
+        max_lines = _clamp_optional_int(max_lines, 1, 500)
+        lines = lines[-max_lines:]
+
+    if max_chars is not None:
+        max_chars = _clamp_optional_int(max_chars, 200, 200000)
+        merged = "\n".join(lines)
+        if len(merged) > max_chars:
+            merged = merged[-max_chars:]
+            lines = [line for line in merged.splitlines() if line.strip()]
+
+    return lines
 
 
 def _run_forum_engine(body: ForumRequest) -> Dict[str, Any]:
     context = body.context or {}
     request_id = str(context.get("request_id") or uuid.uuid4())
-    forum_logs = _normalize_forum_logs(body.forum_logs)
+    forum_logs = _normalize_forum_logs(body.forum_logs, body.max_lines, body.max_chars)
 
     if not forum_logs:
         raise HTTPException(status_code=400, detail="forum_logs is empty")
@@ -481,7 +559,7 @@ def research_dispatch(body: ResearchRequest, _auth: None = Depends(_require_auth
     if not query:
         raise HTTPException(status_code=400, detail="missing field: query")
 
-    return _run_research_impl(engine, query, body.save_report, body.export_formats, context)
+    return _run_research_impl(engine, query, body.save_report, body.export_formats, context, body)
 
 
 @app.post("/v1/research/{engine}")
@@ -491,7 +569,7 @@ def research_engine(engine: str, body: ResearchRequest, _auth: None = Depends(_r
     if not query:
         raise HTTPException(status_code=400, detail="missing field: query")
 
-    return _run_research_impl(engine, query, body.save_report, body.export_formats, context)
+    return _run_research_impl(engine, query, body.save_report, body.export_formats, context, body)
 
 
 def _run_research_impl(
@@ -500,16 +578,18 @@ def _run_research_impl(
     save_report: bool,
     export_formats: Optional[List[str]],
     context: Dict[str, Any],
+    body: ResearchRequest,
 ):
     engine_name = str(engine).strip().lower()
+    overrides = _build_runtime_overrides(body)
 
     try:
         if engine_name == "query":
-            return _run_query_engine(query, save_report, export_formats, context)
+            return _run_query_engine(query, save_report, export_formats, context, overrides)
         if engine_name == "media":
-            return _run_media_engine(query, save_report, context)
+            return _run_media_engine(query, save_report, context, overrides)
         if engine_name == "insight":
-            return _run_insight_engine(query, save_report, context)
+            return _run_insight_engine(query, save_report, context, overrides)
         raise HTTPException(status_code=400, detail="unsupported engine, use query|media|insight")
     except HTTPException:
         raise
