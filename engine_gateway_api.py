@@ -533,11 +533,6 @@ def _stream_with_heartbeat(run_fn, stream_meta: Dict[str, Any], request: Optiona
                     "elapsed_seconds": round(time.time() - started_at, 1),
                     "result": result_payload,
                 }
-                if isinstance(result_payload, dict):
-                    # Backward-compatible: expose result fields at done top-level as well.
-                    for k, v in result_payload.items():
-                        if k not in done_payload:
-                            done_payload[k] = v
                 yield _sse_event(
                     "done",
                     done_payload,
@@ -708,7 +703,7 @@ def _run_query_engine(query: str, save_report: bool, export_formats: Optional[Li
     return {
         "summary": summary if isinstance(summary, str) else str(summary),
         "sources": data.get("sources") if isinstance(data.get("sources"), list) else _extract_sources_from_text(str(summary)),
-        "raw_result": data,
+        "raw_result": data.get("raw_result") if isinstance(data.get("raw_result"), dict) else data,
         "stats": {"engine": "QueryEngine", "timestamp": _iso_now()},
         "manifest": _build_manifest("QueryEngine", request_id, context),
         "logs": data.get("logs") if isinstance(data.get("logs"), list) else ["QueryEngine completed"],
@@ -725,7 +720,7 @@ def _run_media_engine(query: str, save_report: bool, context: Dict[str, Any], ov
         "platform_distribution": data.get("platform_distribution") if isinstance(data.get("platform_distribution"), dict) else {},
         "media_highlights": data.get("media_highlights") if isinstance(data.get("media_highlights"), list) else [],
         "sources": data.get("sources") if isinstance(data.get("sources"), list) else _extract_sources_from_text(str(summary)),
-        "raw_result": data,
+        "raw_result": data.get("raw_result") if isinstance(data.get("raw_result"), dict) else data,
         "stats": {"engine": "MediaEngine", "timestamp": _iso_now()},
         "manifest": _build_manifest("MediaEngine", request_id, context),
         "logs": data.get("logs") if isinstance(data.get("logs"), list) else ["MediaEngine completed"],
@@ -744,7 +739,7 @@ def _run_insight_engine(query: str, save_report: bool, context: Dict[str, Any], 
         "topic_clusters": data.get("topic_clusters") if isinstance(data.get("topic_clusters"), list) else [],
         "risk_signals": data.get("risk_signals") if isinstance(data.get("risk_signals"), list) else [],
         "sources": data.get("sources") if isinstance(data.get("sources"), list) else _extract_sources_from_text(str(summary)),
-        "raw_result": data,
+        "raw_result": data.get("raw_result") if isinstance(data.get("raw_result"), dict) else data,
         "stats": {"engine": "InsightEngine", "timestamp": _iso_now()},
         "manifest": _build_manifest("InsightEngine", request_id, context),
         "logs": data.get("logs") if isinstance(data.get("logs"), list) else ["InsightEngine completed"],
