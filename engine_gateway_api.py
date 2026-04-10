@@ -528,7 +528,11 @@ def _stream_with_heartbeat(run_fn, stream_meta: Dict[str, Any], request: Optiona
 
             if item_type == "result":
                 result_payload = payload if isinstance(payload, dict) else {"result": payload}
-                yield _sse_event("result", result_payload)
+                if isinstance(result_payload, dict):
+                    raw_result = result_payload.get("raw_result")
+                    if isinstance(raw_result, dict) and ("summary" in raw_result) and ("summary" in result_payload):
+                        result_payload = dict(result_payload)
+                        result_payload.pop("summary", None)
                 done_payload = {
                     "ok": True,
                     "elapsed_seconds": round(time.time() - started_at, 1),
