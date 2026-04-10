@@ -22,7 +22,7 @@ from ..utils.text_processing import (
 class ReportStructureNode(StateMutationNode):
     """生成报告结构的节点"""
     
-    def __init__(self, llm_client, query: str):
+    def __init__(self, llm_client, query: str, max_paragraphs: int = 5):
         """
         初始化报告结构节点
         
@@ -32,6 +32,7 @@ class ReportStructureNode(StateMutationNode):
         """
         super().__init__(llm_client, "ReportStructureNode")
         self.query = query
+        self.max_paragraphs = max(1, int(max_paragraphs or 5))
     
     def validate_input(self, input_data: Any) -> bool:
         """验证输入数据"""
@@ -52,7 +53,10 @@ class ReportStructureNode(StateMutationNode):
             logger.info(f"正在为查询生成报告结构: {self.query}")
             
             # 调用LLM（流式，安全拼接UTF-8）
-            response = self.llm_client.stream_invoke_to_string(SYSTEM_PROMPT_REPORT_STRUCTURE, self.query)
+            response = self.llm_client.stream_invoke_to_string(
+                SYSTEM_PROMPT_REPORT_STRUCTURE,
+                self._build_structure_query(),
+            )
             
             # 处理响应
             processed_response = self.process_output(response)
@@ -138,6 +142,8 @@ class ReportStructureNode(StateMutationNode):
             if not validated_structure:
                 logger.warning("没有有效的段落结构，使用默认结构")
                 return self._generate_default_structure()
+
+            validated_structure = validated_structure[: self.max_paragraphs]
             
             logger.info(f"成功验证 {len(validated_structure)} 个段落结构")
             return validated_structure
@@ -163,7 +169,14 @@ class ReportStructureNode(StateMutationNode):
                 "title": "深度分析",
                 "content": "深入分析查询主题的各个方面"
             }
-        ]
+        ][: self.max_paragraphs]
+
+    def _build_structure_query(self) -> str:
+        return (
+            f"查询主题：{self.query}\n"
+            f"结构要求：请严格生成不超过 {self.max_paragraphs} 个段落；"
+            f"若主题较复杂，优先保证前 {self.max_paragraphs} 个段落的信息密度与覆盖度。"
+        )
     
     def mutate_state(self, input_data: Any = None, state: State = None, **kwargs) -> State:
         """

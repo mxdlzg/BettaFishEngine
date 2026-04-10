@@ -189,7 +189,11 @@ class DeepSearchAgent:
         logger.info(f"\n[步骤 1] 生成报告结构...")
         
         # 创建报告结构节点
-        report_structure_node = ReportStructureNode(self.llm_client, query)
+        report_structure_node = ReportStructureNode(
+            self.llm_client,
+            query,
+            max_paragraphs=int(getattr(self.config, "MAX_PARAGRAPHS", 5) or 5),
+        )
         
         # 生成结构并更新状态
         self.state = report_structure_node.mutate_state(state=self.state)
