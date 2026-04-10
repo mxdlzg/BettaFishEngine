@@ -191,7 +191,8 @@ class BochaMultimodalSearch:
 
         try:
 
-            response = requests.post(self.BOCHA_BASE_URL, headers=self._headers, json=payload, timeout=30)
+            timeout_seconds = max(5, int(getattr(settings, "SEARCH_TIMEOUT", 30) or 30))
+            response = requests.post(self.BOCHA_BASE_URL, headers=self._headers, json=payload, timeout=timeout_seconds)
             response.raise_for_status()  # 如果HTTP状态码是4xx或5xx，则抛出异常
 
             response_dict = response.json()

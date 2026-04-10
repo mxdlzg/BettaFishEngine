@@ -75,6 +75,17 @@ class MediaCrawlerDB:
         初始化客户端。
         """
         self._missing_tables_reported = set()
+        self._local_db_enabled = bool(getattr(settings, "ENABLE_LOCAL_DB_SEARCH", False))
+
+    def _db_disabled_response(self, tool_name: str, parameters: Dict[str, Any]) -> DBResponse:
+        logger.info(f"--- TOOL: {tool_name} skipped (local DB search disabled) ---")
+        return DBResponse(
+            tool_name=tool_name,
+            parameters=parameters,
+            results=[],
+            results_count=0,
+            error_message="local_db_search_disabled",
+        )
 
     def _extract_missing_table_name(self, query: str, error_message: str) -> Optional[str]:
         # PostgreSQL UndefinedTableError usually looks like: relation "table_name" does not exist
@@ -101,8 +112,9 @@ class MediaCrawlerDB:
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
             
-            # 直接运行协程
-            return loop.run_until_complete(fetch_all(query, params))
+            # 直接运行协程，并受 SEARCH_TIMEOUT 保护
+            timeout_seconds = max(5, int(getattr(settings, "SEARCH_TIMEOUT", 240) or 240))
+            return loop.run_until_complete(asyncio.wait_for(fetch_all(query, params), timeout=timeout_seconds))
         
         except Exception as e:
             err_msg = str(e)
@@ -175,6 +187,8 @@ class MediaCrawlerDB:
             DBResponse: 包含按综合热度排序后的内容列表。
         """
         params_for_log = {'time_period': time_period, 'limit': limit}
+        if not self._local_db_enabled:
+            return self._db_disabled_response("search_hot_content", params_for_log)
         logger.info(f"--- TOOL: 查找热点内容 (params: {params_for_log}) ---")
         
         now = datetime.now()
@@ -234,6 +248,8 @@ class MediaCrawlerDB:
             DBResponse: 包含所有匹配结果的聚合列表。
         """
         params_for_log = {'topic': topic, 'limit_per_table': limit_per_table}
+        if not self._local_db_enabled:
+            return self._db_disabled_response("search_topic_globally", params_for_log)
         logger.info(f"--- TOOL: 全局话题搜索 (params: {params_for_log}) ---")
         
         search_term, all_results = f"%{topic}%", []
@@ -279,6 +295,8 @@ class MediaCrawlerDB:
             DBResponse: 包含在指定日期范围内找到的结果的聚合列表。
         """
         params_for_log = {'topic': topic, 'start_date': start_date, 'end_date': end_date, 'limit_per_table': limit_per_table}
+        if not self._local_db_enabled:
+            return self._db_disabled_response("search_topic_by_date", params_for_log)
         logger.info(f"--- TOOL: 按日期搜索话题 (params: {params_for_log}) ---")
         
         try:
@@ -332,6 +350,8 @@ class MediaCrawlerDB:
             DBResponse: 包含匹配的评论列表。
         """
         params_for_log = {'topic': topic, 'limit': limit}
+        if not self._local_db_enabled:
+            return self._db_disabled_response("get_comments_for_topic", params_for_log)
         logger.info(f"--- TOOL: 获取话题评论 (params: {params_for_log}) ---")
         
         search_term = f"%{topic}%"
@@ -379,6 +399,8 @@ class MediaCrawlerDB:
             DBResponse: 包含在该平台找到的结果列表。
         """
         params_for_log = {'platform': platform, 'topic': topic, 'start_date': start_date, 'end_date': end_date, 'limit': limit}
+        if not self._local_db_enabled:
+            return self._db_disabled_response("search_topic_on_platform", params_for_log)
         logger.info(f"--- TOOL: 平台定向搜索 (params: {params_for_log}) ---")
 
         all_configs = { 'bilibili': [{'table': 'bilibili_video', 'fields': ['title', 'desc', 'source_keyword'], 'type': 'video', 'time_col': 'create_time', 'time_type': 'sec'}, {'table': 'bilibili_video_comment', 'fields': ['content'], 'type': 'comment'}], 'douyin': [{'table': 'douyin_aweme', 'fields': ['title', 'desc', 'source_keyword'], 'type': 'video', 'time_col': 'create_time', 'time_type': 'ms'}, {'table': 'douyin_aweme_comment', 'fields': ['content'], 'type': 'comment'}], 'kuaishou': [{'table': 'kuaishou_video', 'fields': ['title', 'desc', 'source_keyword'], 'type': 'video', 'time_col': 'create_time', 'time_type': 'ms'}, {'table': 'kuaishou_video_comment', 'fields': ['content'], 'type': 'comment'}], 'weibo': [{'table': 'weibo_note', 'fields': ['content', 'source_keyword'], 'type': 'note', 'time_col': 'create_date_time', 'time_type': 'str'}, {'table': 'weibo_note_comment', 'fields': ['content'], 'type': 'comment'}], 'xhs': [{'table': 'xhs_note', 'fields': ['title', 'desc', 'tag_list', 'source_keyword'], 'type': 'note', 'time_col': 'time', 'time_type': 'ms'}, {'table': 'xhs_note_comment', 'fields': ['content'], 'type': 'comment'}], 'zhihu': [{'table': 'zhihu_content', 'fields': ['title', 'desc', 'content_text', 'source_keyword'], 'type': 'content', 'time_col': 'created_time', 'time_type': 'sec_str'}, {'table': 'zhihu_comment', 'fields': ['content'], 'type': 'comment'}], 'tieba': [{'table': 'tieba_note', 'fields': ['title', 'desc', 'source_keyword'], 'type': 'note', 'time_col': 'publish_time', 'time_type': 'str'}, {'table': 'tieba_comment', 'fields': ['content'], 'type': 'comment'}] }

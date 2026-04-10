@@ -581,6 +581,8 @@ class DeepSearchAgent:
     def _process_paragraphs(self):
         """处理所有段落"""
         total_paragraphs = len(self.state.paragraphs)
+        max_paragraphs = max(1, int(getattr(self.config, "MAX_PARAGRAPHS", total_paragraphs) or total_paragraphs))
+        total_paragraphs = min(total_paragraphs, max_paragraphs)
 
         for i in range(total_paragraphs):
             logger.info(

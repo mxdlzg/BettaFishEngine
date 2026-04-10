@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     SEARCH_CONTENT_MAX_LENGTH: int = Field(20000, description="用于提示的最长内容长度")
     MAX_REFLECTIONS: int = Field(2, description="最大反思轮数")
     MAX_PARAGRAPHS: int = Field(5, description="最大段落数")
+    MAX_SEARCH_RESULTS: int = Field(20, description="最大搜索结果数")
     
     MINDSPIDER_API_KEY: Optional[str] = Field(None, description="MindSpider API密钥")
     MINDSPIDER_BASE_URL: Optional[str] = Field("https://api.deepseek.com", description="MindSpider LLM接口BaseUrl")
@@ -71,7 +72,7 @@ class Settings(BaseSettings):
     # ================== 网络工具配置 ====================
     TAVILY_API_KEY: str = Field(None, description="Tavily API（申请地址：https://www.tavily.com/）API密钥，用于Tavily网络搜索")
     
-    SEARCH_TOOL_TYPE: Literal["AnspireAPI", "BochaAPI"] = Field("AnspireAPI", description="网络搜索工具类型，支持BochaAPI或AnspireAPI两种，默认为AnspireAPI")
+    SEARCH_TOOL_TYPE: Literal["AnspireAPI", "BochaAPI"] = Field("BochaAPI", description="网络搜索工具类型，支持BochaAPI或AnspireAPI两种，默认为BochaAPI")
     BOCHA_BASE_URL: Optional[str] = Field("https://api.bochaai.com/v1/ai-search", description="Bocha AI 搜索BaseUrl或博查网页搜索BaseUrl")
     BOCHA_WEB_SEARCH_API_KEY: Optional[str] = Field(None, description="Bocha API（申请地址：https://open.bochaai.com/）API密钥，用于Bocha搜索")
     # Anspire AI Search API（申请地址：https://open.anspire.cn/）

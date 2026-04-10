@@ -39,20 +39,18 @@ class DeepSearchAgent:
         # 初始化LLM客户端
         self.llm_client = self._initialize_llm()
         
-        # 初始化搜索工具集 - 根据RETRIEVER配置选择
-        retriever = os.getenv("RETRIEVER", "duckduckgo").lower()
-        search_tool_type = os.getenv("SEARCH_TOOL_TYPE", "").lower()
+        # 初始化搜索工具集 - 默认使用Bocha，支持通过环境变量切换
+        retriever = os.getenv("RETRIEVER", "bocha").lower()
+        search_tool_type = os.getenv("SEARCH_TOOL_TYPE", str(getattr(self.config, "SEARCH_TOOL_TYPE", "BochaAPI"))).lower()
         
-        if retriever == "duckduckgo" or (not search_tool_type):
-            self.search_agency = DuckDuckGoMultimodalSearch()
-            self.search_tool_name = "DuckDuckGoMultimodalSearch"
-        elif search_tool_type == "bochaapi" and (self.config.BOCHA_API_KEY or self.config.BOCHA_WEB_SEARCH_API_KEY):
+        if (retriever == "bocha" or search_tool_type == "bochaapi" or not search_tool_type) and (self.config.BOCHA_API_KEY or self.config.BOCHA_WEB_SEARCH_API_KEY):
             self.search_agency = BochaMultimodalSearch(api_key=(self.config.BOCHA_API_KEY or self.config.BOCHA_WEB_SEARCH_API_KEY))
             self.search_tool_name = "BochaMultimodalSearch"
         elif search_tool_type == "anspireapi" and self.config.ANSPIRE_API_KEY:
             self.search_agency = AnspireAISearch(api_key=self.config.ANSPIRE_API_KEY)
             self.search_tool_name = "AnspireAISearch"
         else:
+            # 当缺少Bocha/Anspire密钥时回退到DuckDuckGo，避免启动失败。
             self.search_agency = DuckDuckGoMultimodalSearch()
             self.search_tool_name = "DuckDuckGoMultimodalSearch"
         
@@ -204,6 +202,8 @@ class DeepSearchAgent:
     def _process_paragraphs(self):
         """处理所有段落"""
         total_paragraphs = len(self.state.paragraphs)
+        max_paragraphs = max(1, int(getattr(self.config, "MAX_PARAGRAPHS", total_paragraphs) or total_paragraphs))
+        total_paragraphs = min(total_paragraphs, max_paragraphs)
         
         for i in range(total_paragraphs):
             logger.info(f"\n[步骤 2.{i+1}] 处理段落: {self.state.paragraphs[i].title}")
@@ -249,15 +249,16 @@ class DeepSearchAgent:
         search_kwargs = {}
         if search_tool in ["comprehensive_search", "web_search_only"]:
             # 这些工具支持max_results参数
-            search_kwargs["max_results"] = 10
+            search_kwargs["max_results"] = max(1, int(getattr(self.config, "MAX_SEARCH_RESULTS", 10) or 10))
         
         search_response = self.execute_search_tool(search_tool, search_query, **search_kwargs)
         
         # 转换为兼容格式
         search_results = []
         if search_response and search_response.webpages:
-            # 每种搜索工具都有其特定的结果数量，这里取前10个作为上限
-            max_results = min(len(search_response.webpages), 10)
+            configured_cap = int(getattr(self.config, "MAX_SEARCH_RESULTS", 10) or 10)
+            configured_cap = max(1, configured_cap)
+            max_results = min(len(search_response.webpages), configured_cap)
             for result in search_response.webpages[:max_results]:
                 search_results.append({
                     'title': result.name,
@@ -332,15 +333,16 @@ class DeepSearchAgent:
             search_kwargs = {}
             if search_tool in ["comprehensive_search", "web_search_only"]:
                 # 这些工具支持max_results参数
-                search_kwargs["max_results"] = 10
+                search_kwargs["max_results"] = max(1, int(getattr(self.config, "MAX_SEARCH_RESULTS", 10) or 10))
             
             search_response = self.execute_search_tool(search_tool, search_query, **search_kwargs)
             
             # 转换为兼容格式
             search_results = []
             if search_response and search_response.webpages:
-                # 每种搜索工具都有其特定的结果数量，这里取前10个作为上限
-                max_results = min(len(search_response.webpages), 10)
+                configured_cap = int(getattr(self.config, "MAX_SEARCH_RESULTS", 10) or 10)
+                configured_cap = max(1, configured_cap)
+                max_results = min(len(search_response.webpages), configured_cap)
                 for result in search_response.webpages[:max_results]:
                     search_results.append({
                         'title': result.name,

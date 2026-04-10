@@ -62,6 +62,7 @@ class ResearchRequest(BaseModel):
     max_paragraphs: Optional[int] = Field(default=None, description="Override max report paragraphs")
     max_search_results: Optional[int] = Field(default=None, description="Override max search results")
     search_timeout: Optional[int] = Field(default=None, description="Override search timeout in seconds")
+    enable_local_db_search: Optional[bool] = Field(default=None, description="Enable local DB search for this request")
     engine: Optional[str] = Field(default=None, description="query|media|insight (only for /v1/research)")
 
 
@@ -156,26 +157,26 @@ class EngineRuntime:
             return settings_obj.model_copy(deep=True)
         return copy.deepcopy(settings_obj)
 
-    def _apply_overrides(self, cfg: Any, overrides: Dict[str, int]) -> None:
+    def _apply_overrides(self, cfg: Any, overrides: Dict[str, Any]) -> None:
         for key, value in overrides.items():
             if value is None:
                 continue
             if hasattr(cfg, key):
                 setattr(cfg, key, value)
 
-    def create_query_agent(self, overrides: Optional[Dict[str, int]] = None):
+    def create_query_agent(self, overrides: Optional[Dict[str, Any]] = None):
         self.ensure_ready()
         cfg = self._clone_settings(self.query_settings)
         self._apply_overrides(cfg, overrides or {})
         return self.query_agent_class(config=cfg)
 
-    def create_media_agent(self, overrides: Optional[Dict[str, int]] = None):
+    def create_media_agent(self, overrides: Optional[Dict[str, Any]] = None):
         self.ensure_ready()
         cfg = self._clone_settings(self.media_settings)
         self._apply_overrides(cfg, overrides or {})
         return self.media_agent_class(config=cfg)
 
-    def create_insight_agent(self, overrides: Optional[Dict[str, int]] = None):
+    def create_insight_agent(self, overrides: Optional[Dict[str, Any]] = None):
         self.ensure_ready()
         cfg = self._clone_settings(self.insight_settings)
         self._apply_overrides(cfg, overrides or {})
@@ -525,12 +526,33 @@ def _stream_with_heartbeat(run_fn, stream_meta: Dict[str, Any], request: Optiona
                 continue
 
             if item_type == "result":
-                yield _sse_event("result", payload if isinstance(payload, dict) else {"result": payload})
-                yield _sse_event("done", {"ok": True, "elapsed_seconds": round(time.time() - started_at, 1)})
+                result_payload = payload if isinstance(payload, dict) else {"result": payload}
+                yield _sse_event("result", result_payload)
+                done_payload = {
+                    "ok": True,
+                    "elapsed_seconds": round(time.time() - started_at, 1),
+                    "result": result_payload,
+                }
+                if isinstance(result_payload, dict):
+                    # Backward-compatible: expose result fields at done top-level as well.
+                    for k, v in result_payload.items():
+                        if k not in done_payload:
+                            done_payload[k] = v
+                yield _sse_event(
+                    "done",
+                    done_payload,
+                )
                 break
 
             yield _sse_event("error", payload if isinstance(payload, dict) else {"detail": str(payload)})
-            yield _sse_event("done", {"ok": False, "elapsed_seconds": round(time.time() - started_at, 1)})
+            yield _sse_event(
+                "done",
+                {
+                    "ok": False,
+                    "elapsed_seconds": round(time.time() - started_at, 1),
+                    "error": payload if isinstance(payload, dict) else {"detail": str(payload)},
+                },
+            )
             break
 
     return StreamingResponse(
@@ -550,13 +572,22 @@ def _clamp_optional_int(value: Optional[int], minimum: int, maximum: int) -> Opt
     return max(minimum, min(maximum, int(value)))
 
 
-def _build_runtime_overrides(body: ResearchRequest) -> Dict[str, int]:
-    overrides: Dict[str, int] = {
+def _build_runtime_overrides(body: ResearchRequest) -> Dict[str, Any]:
+    search_results_cap = _clamp_optional_int(body.max_search_results, 1, 100)
+    overrides: Dict[str, Any] = {
         "MAX_REFLECTIONS": _clamp_optional_int(body.max_reflections, 0, 8),
         "MAX_PARAGRAPHS": _clamp_optional_int(body.max_paragraphs, 1, 12),
-        "MAX_SEARCH_RESULTS": _clamp_optional_int(body.max_search_results, 1, 100),
+        "MAX_SEARCH_RESULTS": search_results_cap,
+        "MAX_SEARCH_RESULTS_FOR_LLM": search_results_cap,
+        "DEFAULT_SEARCH_TOPIC_GLOBALLY_LIMIT_PER_TABLE": search_results_cap,
+        "DEFAULT_SEARCH_TOPIC_BY_DATE_LIMIT_PER_TABLE": search_results_cap,
+        "DEFAULT_GET_COMMENTS_FOR_TOPIC_LIMIT": _clamp_optional_int(body.max_search_results, 1, 500),
+        "DEFAULT_SEARCH_TOPIC_ON_PLATFORM_LIMIT": _clamp_optional_int(body.max_search_results, 1, 500),
         "SEARCH_TIMEOUT": _clamp_optional_int(body.search_timeout, 10, 600),
     }
+
+    if body.enable_local_db_search is not None:
+        overrides["ENABLE_LOCAL_DB_SEARCH"] = bool(body.enable_local_db_search)
 
     intensity = (body.discussion_intensity or "normal").strip().lower()
     presets: Dict[str, Dict[str, int]] = {

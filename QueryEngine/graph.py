@@ -22,7 +22,7 @@ from .nodes import (
     ReflectionSummaryNode,
     ReportFormattingNode
 )
-from .tools import DuckDuckGoNewsAgency
+from .tools import TavilyNewsAgency
 from .utils import Settings, format_search_results_for_prompt
 
 
@@ -95,7 +95,7 @@ def create_deep_search_graph(config: Optional[Settings] = None) -> StateGraph:
     
     # 初始化共享资源
     llm_client = _initialize_llm(config)
-    search_agency = DuckDuckGoNewsAgency()
+    search_agency = TavilyNewsAgency(api_key=config.TAVILY_API_KEY)
     
     # 初始化所有节点
     nodes = {
@@ -543,7 +543,7 @@ def _initialize_llm(config: Settings) -> LLMClient:
     )
 
 
-def _execute_search(search_agency: DuckDuckGoNewsAgency, tool_name: str, query: str, **kwargs):
+def _execute_search(search_agency: TavilyNewsAgency, tool_name: str, query: str, **kwargs):
     """执行搜索"""
     tool_map = {
         "basic_search_news": search_agency.basic_search_news,

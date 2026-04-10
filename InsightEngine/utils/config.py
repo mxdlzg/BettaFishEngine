@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     DB_PORT: int = Field(3306, description="数据库端口")
     DB_CHARSET: str = Field("utf8mb4", description="数据库字符集")
     DB_DIALECT: Optional[str] = Field("mysql", description="数据库方言，如mysql、postgresql等，SQLAlchemy后端选择")
+    ENABLE_LOCAL_DB_SEARCH: bool = Field(False, description="是否启用本地数据库检索，默认关闭")
     MAX_REFLECTIONS: int = Field(3, description="最大反思次数")
     MAX_PARAGRAPHS: int = Field(6, description="最大段落数")
     SEARCH_TIMEOUT: int = Field(240, description="单次搜索请求超时")

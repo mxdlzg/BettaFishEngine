@@ -19,7 +19,7 @@ from .nodes import (
     ReportFormattingNode
 )
 from .state import State
-from .tools import DuckDuckGoNewsAgency, DuckDuckGoResponse
+from .tools import TavilyNewsAgency, TavilyResponse
 from .utils import Settings, format_search_results_for_prompt
 from loguru import logger
 
@@ -40,9 +40,9 @@ class DeepSearchAgent:
         # 初始化LLM客户端
         self.llm_client = self._initialize_llm()
         
-        # 初始化搜索工具集 - 只使用DuckDuckGo
-        self.search_agency = DuckDuckGoNewsAgency()
-        self.search_tool_name = "DuckDuckGoNewsAgency"
+        # 初始化搜索工具集 - 默认使用Tavily
+        self.search_agency = TavilyNewsAgency(api_key=self.config.TAVILY_API_KEY)
+        self.search_tool_name = "TavilyNewsAgency"
         logger.info(f"使用搜索工具: {self.search_tool_name}")
         
         # 初始化节点
@@ -99,7 +99,7 @@ class DeepSearchAgent:
         except ValueError:
             return False
     
-    def execute_search_tool(self, tool_name: str, query: str, **kwargs) -> DuckDuckGoResponse:
+    def execute_search_tool(self, tool_name: str, query: str, **kwargs) -> TavilyResponse:
         """
         执行指定的搜索工具
         
@@ -115,7 +115,7 @@ class DeepSearchAgent:
             **kwargs: 额外参数（如start_date, end_date, max_results）
             
         Returns:
-            DuckDuckGoResponse对象
+            TavilyResponse对象
         """
         logger.info(f"  → 执行搜索工具: {tool_name}")
         
@@ -202,6 +202,8 @@ class DeepSearchAgent:
     def _process_paragraphs(self):
         """处理所有段落"""
         total_paragraphs = len(self.state.paragraphs)
+        max_paragraphs = max(1, int(getattr(self.config, "MAX_PARAGRAPHS", total_paragraphs) or total_paragraphs))
+        total_paragraphs = min(total_paragraphs, max_paragraphs)
         
         for i in range(total_paragraphs):
             logger.info(f"\n[步骤 2.{i+1}] 处理段落: {self.state.paragraphs[i].title}")
@@ -268,8 +270,10 @@ class DeepSearchAgent:
         # 转换为兼容格式
         search_results = []
         if search_response and search_response.results:
-            # 每种搜索工具都有其特定的结果数量，这里取前10个作为上限
-            max_results = min(len(search_response.results), 10)
+            # Use config-driven cap so gateway max_search_results is effective.
+            configured_cap = int(getattr(self.config, "MAX_SEARCH_RESULTS", 10) or 10)
+            configured_cap = max(1, configured_cap)
+            max_results = min(len(search_response.results), configured_cap)
             for result in search_response.results[:max_results]:
                 search_results.append({
                     'title': result.title,
@@ -359,8 +363,9 @@ class DeepSearchAgent:
             # 转换为兼容格式
             search_results = []
             if search_response and search_response.results:
-                # 每种搜索工具都有其特定的结果数量，这里取前10个作为上限
-                max_results = min(len(search_response.results), 10)
+                configured_cap = int(getattr(self.config, "MAX_SEARCH_RESULTS", 10) or 10)
+                configured_cap = max(1, configured_cap)
+                max_results = min(len(search_response.results), configured_cap)
                 for result in search_response.results[:max_results]:
                     search_results.append({
                         'title': result.title,
