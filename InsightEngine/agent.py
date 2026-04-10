@@ -580,27 +580,50 @@ class DeepSearchAgent:
 
     def _process_paragraphs(self):
         """处理所有段落"""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
         total_paragraphs = len(self.state.paragraphs)
         max_paragraphs = max(1, int(getattr(self.config, "MAX_PARAGRAPHS", total_paragraphs) or total_paragraphs))
         total_paragraphs = min(total_paragraphs, max_paragraphs)
 
-        for i in range(total_paragraphs):
-            logger.info(
-                f"\n[步骤 2.{i + 1}] 处理段落: {self.state.paragraphs[i].title}"
-            )
-            logger.info("-" * 50)
+        max_workers = max(1, int(getattr(self.config, "MAX_PARAGRAPH_WORKERS", 3) or 3))
+        max_workers = min(max_workers, total_paragraphs) if total_paragraphs > 0 else 1
 
-            # 初始搜索和总结
-            self._initial_search_and_summary(i)
+        if total_paragraphs <= 1 or max_workers <= 1:
+            for i in range(total_paragraphs):
+                self._process_single_paragraph(i, total_paragraphs)
+                progress = (i + 1) / total_paragraphs * 100
+                logger.info(f"段落处理完成 ({progress:.1f}%)")
+            return
 
-            # 反思循环
-            self._reflection_loop(i)
+        logger.info(f"启用段落并发处理: workers={max_workers}, paragraphs={total_paragraphs}")
+        completed = 0
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_index = {
+                executor.submit(self._process_single_paragraph, i, total_paragraphs): i
+                for i in range(total_paragraphs)
+            }
+            for future in as_completed(future_to_index):
+                future.result()
+                completed += 1
+                progress = completed / total_paragraphs * 100
+                logger.info(f"段落处理完成 ({progress:.1f}%) [{completed}/{total_paragraphs}]")
 
-            # 标记段落完成
-            self.state.paragraphs[i].research.mark_completed()
+    def _process_single_paragraph(self, paragraph_index: int, total_paragraphs: int):
+        paragraph = self.state.paragraphs[paragraph_index]
+        logger.info(
+            f"\n[步骤 2.{paragraph_index + 1}] 处理段落: {paragraph.title}"
+        )
+        logger.info("-" * 50)
 
-            progress = (i + 1) / total_paragraphs * 100
-            logger.info(f"段落处理完成 ({progress:.1f}%)")
+        # 初始搜索和总结
+        self._initial_search_and_summary(paragraph_index)
+
+        # 反思循环
+        self._reflection_loop(paragraph_index)
+
+        # 标记段落完成
+        paragraph.research.mark_completed()
 
     def _initial_search_and_summary(self, paragraph_index: int):
         """执行初始搜索和总结"""

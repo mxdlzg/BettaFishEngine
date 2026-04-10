@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     ENABLE_LOCAL_DB_SEARCH: bool = Field(False, description="是否启用本地数据库检索，默认关闭")
     MAX_REFLECTIONS: int = Field(3, description="最大反思次数")
     MAX_PARAGRAPHS: int = Field(6, description="最大段落数")
+    MAX_PARAGRAPH_WORKERS: int = Field(3, description="段落并发工作线程数")
     SEARCH_TIMEOUT: int = Field(240, description="单次搜索请求超时")
     MAX_CONTENT_LENGTH: int = Field(500000, description="搜索最大内容长度")
     DEFAULT_SEARCH_HOT_CONTENT_LIMIT: int = Field(100, description="热榜内容默认最大数")

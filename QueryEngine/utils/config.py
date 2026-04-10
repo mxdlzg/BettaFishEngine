@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     SEARCH_CONTENT_MAX_LENGTH: int = Field(20000, description="用于提示的最长内容长度")
     MAX_REFLECTIONS: int = Field(2, description="最大反思轮数")
     MAX_PARAGRAPHS: int = Field(5, description="最大段落数")
+    MAX_PARAGRAPH_WORKERS: int = Field(3, description="段落并发工作线程数")
     MAX_SEARCH_RESULTS: int = Field(20, description="最大搜索结果数")
     
     # ================== 输出配置 ====================
@@ -71,6 +72,7 @@ def print_config(config: Settings):
     message += f"最长内容长度: {config.SEARCH_CONTENT_MAX_LENGTH}\n"
     message += f"最大反思次数: {config.MAX_REFLECTIONS}\n"
     message += f"最大段落数: {config.MAX_PARAGRAPHS}\n"
+    message += f"段落并发工作线程数: {config.MAX_PARAGRAPH_WORKERS}\n"
     message += f"最大搜索结果数: {config.MAX_SEARCH_RESULTS}\n"
     message += f"输出目录: {config.OUTPUT_DIR}\n"
     message += f"保存中间状态: {config.SAVE_INTERMEDIATE_STATES}\n"

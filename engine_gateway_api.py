@@ -60,6 +60,7 @@ class ResearchRequest(BaseModel):
     discussion_intensity: str = Field(default="normal", description="low|normal|high")
     max_reflections: Optional[int] = Field(default=None, description="Override engine reflection rounds")
     max_paragraphs: Optional[int] = Field(default=None, description="Override max report paragraphs")
+    max_paragraph_workers: Optional[int] = Field(default=None, description="Override paragraph concurrency workers")
     max_search_results: Optional[int] = Field(default=None, description="Override max search results")
     search_timeout: Optional[int] = Field(default=None, description="Override search timeout in seconds")
     enable_local_db_search: Optional[bool] = Field(default=None, description="Enable local DB search for this request")
@@ -572,6 +573,7 @@ def _build_runtime_overrides(body: ResearchRequest) -> Dict[str, Any]:
     overrides: Dict[str, Any] = {
         "MAX_REFLECTIONS": _clamp_optional_int(body.max_reflections, 0, 8),
         "MAX_PARAGRAPHS": _clamp_optional_int(body.max_paragraphs, 1, 12),
+        "MAX_PARAGRAPH_WORKERS": _clamp_optional_int(body.max_paragraph_workers, 1, 12),
         "MAX_SEARCH_RESULTS": search_results_cap,
         "MAX_SEARCH_RESULTS_FOR_LLM": search_results_cap,
         "DEFAULT_SEARCH_TOPIC_GLOBALLY_LIMIT_PER_TABLE": search_results_cap,

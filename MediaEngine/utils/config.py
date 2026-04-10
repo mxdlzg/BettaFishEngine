@@ -43,6 +43,7 @@ class Settings(BaseSettings):
     SEARCH_CONTENT_MAX_LENGTH: int = Field(20000, description="用于提示的最长内容长度")
     MAX_REFLECTIONS: int = Field(2, description="最大反思轮数")
     MAX_PARAGRAPHS: int = Field(5, description="最大段落数")
+    MAX_PARAGRAPH_WORKERS: int = Field(3, description="段落并发工作线程数")
     MAX_SEARCH_RESULTS: int = Field(20, description="最大搜索结果数")
     
     MINDSPIDER_API_KEY: Optional[str] = Field(None, description="MindSpider API密钥")
