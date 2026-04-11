@@ -10,6 +10,7 @@ Report Agent主类。
 
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from pathlib import Path
 from uuid import uuid4
@@ -566,23 +567,15 @@ class ReportAgent:
             total_chapters = len(sections)  # 总章节数
             completed_chapters = 0  # 已完成章节数
 
-            for section in sections:
+            def _generate_single_chapter(section: TemplateSection) -> Dict[str, Any]:
                 logger.info(f"生成章节: {section.title}")
                 emit('chapter_status', {
                     'chapterId': section.chapter_id,
                     'title': section.title,
                     'status': 'running'
                 })
-                # 章节流式回调：把LLM返回的delta透传给SSE，便于前端实时渲染
-                def chunk_callback(delta: str, meta: Dict[str, Any], section_ref: TemplateSection = section):
-                    """
-                    章节内容流式回调。
 
-                    Args:
-                        delta: LLM最新输出的增量文本。
-                        meta: 节点回传的章节元数据，兜底时使用。
-                        section_ref: 默认指向当前章节，保证在缺失元信息时也能定位。
-                    """
+                def chunk_callback(delta: str, meta: Dict[str, Any], section_ref: TemplateSection = section):
                     emit('chapter_chunk', {
                         'chapterId': meta.get('chapterId') or section_ref.chapter_id,
                         'title': meta.get('title') or section_ref.title,
@@ -664,14 +657,6 @@ class ReportAgent:
                         attempt += 1
                         continue
                     except (AttributeError, TypeError, KeyError, IndexError, ValueError, json.JSONDecodeError) as structure_error:
-                        # 捕获因 JSON 结构异常导致的运行时错误，包装为可重试异常
-                        # 包括：
-                        # - AttributeError: 如 list.get() 调用失败
-                        # - TypeError: 类型不匹配
-                        # - KeyError: 字典键缺失
-                        # - IndexError: 列表索引越界
-                        # - ValueError: 值错误（如 LLM 返回空内容、缺少必要字段）
-                        # - json.JSONDecodeError: JSON 解析失败（未被内部捕获的情况）
                         error_type = type(structure_error).__name__
                         logger.warning(
                             "章节 {title} 生成过程中发生 {error_type}（第 {attempt}/{total} 次尝试），将尝试重新生成: {error}",
@@ -691,7 +676,6 @@ class ReportAgent:
                             'error_type': error_type
                         })
                         if attempt >= chapter_max_attempts:
-                            # 达到最大重试次数，包装为 ChapterJsonParseError 抛出
                             raise ChapterJsonParseError(
                                 f"{section.title} 章节因 {error_type} 在 {chapter_max_attempts} 次尝试后仍无法生成: {structure_error}"
                             ) from structure_error
@@ -719,18 +703,12 @@ class ReportAgent:
                             raise
                         attempt += 1
                         continue
+
                 if chapter_payload is None:
                     raise ChapterJsonParseError(
                         f"{section.title} 章节JSON在 {chapter_max_attempts} 次尝试后仍无法解析"
                     )
-                chapters.append(chapter_payload)
-                completed_chapters += 1  # 更新已完成章节数
-                # 计算当前进度：20% + 80% * (已完成章节数 / 总章节数)，四舍五入
-                chapter_progress = 20 + round(80 * completed_chapters / total_chapters)
-                emit('progress', {
-                    'progress': chapter_progress,
-                    'message': f'章节 {completed_chapters}/{total_chapters} 已完成'
-                })
+
                 completion_status = {
                     'chapterId': section.chapter_id,
                     'title': section.title,
@@ -740,7 +718,32 @@ class ReportAgent:
                 if fallback_used:
                     completion_status['warning'] = 'content_sparse_fallback'
                     completion_status['warningMessage'] = self._CONTENT_SPARSE_WARNING_TEXT
-                emit('chapter_status', completion_status)
+
+                return {
+                    'order': section.order,
+                    'payload': chapter_payload,
+                    'completion_status': completion_status,
+                }
+
+            chapter_workers = min(3, total_chapters) if total_chapters > 0 else 1
+            with ThreadPoolExecutor(max_workers=chapter_workers) as executor:
+                future_map = {
+                    executor.submit(_generate_single_chapter, section): section
+                    for section in sections
+                }
+                for future in as_completed(future_map):
+                    chapter_result = future.result()
+                    chapters.append(chapter_result)
+                    completed_chapters += 1
+                    chapter_progress = 20 + round(80 * completed_chapters / total_chapters)
+                    emit('progress', {
+                        'progress': chapter_progress,
+                        'message': f'章节 {completed_chapters}/{total_chapters} 已完成'
+                    })
+                    emit('chapter_status', chapter_result['completion_status'])
+
+            chapters.sort(key=lambda item: item['order'])
+            chapters = [item['payload'] for item in chapters]
 
             document_ir = self.document_composer.build_document(
                 report_id,

@@ -18,6 +18,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
+import inspect
 import logging
 import ctypes
 import uuid
@@ -391,6 +392,23 @@ def _stream_with_heartbeat(run_fn, stream_meta: Dict[str, Any], request: Optiona
                 pass
 
         root_logger.addHandler(queue_handler)
+
+        def _stream_handler(event_type: str, payload: Dict[str, Any]) -> None:
+            """Forward engine stage/progress events to SSE queue."""
+            try:
+                event_name = str(event_type or "log")
+                queue.put(
+                    (
+                        "event",
+                        {
+                            "event": event_name,
+                            "payload": payload if isinstance(payload, dict) else {"message": str(payload)},
+                        },
+                    )
+                )
+            except Exception:
+                pass
+
         try:
             # Query/Media/Insight engines mainly log via loguru. Attach a temporary sink per request.
             from loguru import logger as _loguru_logger  # type: ignore
@@ -422,7 +440,16 @@ def _stream_with_heartbeat(run_fn, stream_meta: Dict[str, Any], request: Optiona
             )
             # Do not globally redirect stdout/stderr here. It is process-global and causes
             # cross-request log mixing under concurrent stream requests.
-            result = run_fn()
+            supports_stream_handler = False
+            try:
+                supports_stream_handler = "stream_handler" in inspect.signature(run_fn).parameters
+            except Exception:
+                supports_stream_handler = False
+
+            if supports_stream_handler:
+                result = run_fn(stream_handler=_stream_handler)
+            else:
+                result = run_fn()
             queue.put(
                 (
                     "log",
@@ -524,6 +551,21 @@ def _stream_with_heartbeat(run_fn, stream_meta: Dict[str, Any], request: Optiona
 
             if item_type == "log":
                 yield _sse_event("log", payload if isinstance(payload, dict) else {"message": str(payload)})
+                continue
+
+            if item_type == "event":
+                event_name = "log"
+                event_payload: Dict[str, Any] = {"message": ""}
+                if isinstance(payload, dict):
+                    event_name = str(payload.get("event") or "log")
+                    raw_payload = payload.get("payload")
+                    if isinstance(raw_payload, dict):
+                        event_payload = raw_payload
+                    elif raw_payload is not None:
+                        event_payload = {"message": str(raw_payload)}
+                else:
+                    event_payload = {"message": str(payload)}
+                yield _sse_event(event_name, event_payload)
                 continue
 
             if item_type == "result":
@@ -656,7 +698,12 @@ def _local_insight_engine(query: str, save_report: bool, overrides: Dict[str, in
     }
 
 
-def _local_report_engine(body: ReportRequest, reports: List[Any], forum_logs: str) -> Dict[str, Any]:
+def _local_report_engine(
+    body: ReportRequest,
+    reports: List[Any],
+    forum_logs: str,
+    stream_handler=None,
+) -> Dict[str, Any]:
     agent = ENGINE_RUNTIME.create_report_agent()
     return agent.generate_report(
         query=body.query,
@@ -664,6 +711,7 @@ def _local_report_engine(body: ReportRequest, reports: List[Any], forum_logs: st
         forum_logs=forum_logs,
         custom_template=body.custom_template,
         save_report=body.save_report,
+        stream_handler=stream_handler,
     )
 
 
@@ -815,12 +863,79 @@ def _safe_path(path: str) -> str:
     return str(Path(path))
 
 
-def _run_report_engine(body: ReportRequest) -> Dict[str, Any]:
+def _run_report_engine(body: ReportRequest, stream_handler=None) -> Dict[str, Any]:
     context = body.context or {}
     request_id = str(context.get("request_id") or uuid.uuid4())
     reports, merged_forum_logs = _build_report_inputs(body.merged_result, body.reports)
     forum_logs = body.forum_logs or merged_forum_logs
-    local_result = _local_report_engine(body, reports, forum_logs)
+
+    def emit(event_type: str, payload: Dict[str, Any]) -> None:
+        if stream_handler is None:
+            return
+        try:
+            stream_handler(event_type, payload)
+        except Exception:
+            pass
+
+    local_result = None
+    for attempt in range(1, 3):
+        try:
+            emit(
+                "stage",
+                {
+                    "stage": "agent_running",
+                    "attempt": attempt,
+                    "message": f"正在调用ReportAgent生成报告（第{attempt}次尝试）",
+                },
+            )
+            local_result = _local_report_engine(
+                body,
+                reports,
+                forum_logs,
+                stream_handler=stream_handler,
+            )
+            break
+        except Exception as exc:
+            is_chapter_json_parse = exc.__class__.__name__ == "ChapterJsonParseError"
+            if is_chapter_json_parse:
+                hint_message = "尝试将Report Engine的API更换为算力更强、上下文更长的LLM"
+                emit(
+                    "warning",
+                    {
+                        "stage": "agent_running",
+                        "attempt": attempt,
+                        "reason": "chapter_json_parse",
+                        "error": str(exc),
+                        "message": hint_message,
+                    },
+                )
+                raise HTTPException(status_code=502, detail=hint_message) from exc
+
+            emit(
+                "warning",
+                {
+                    "stage": "agent_running",
+                    "attempt": attempt,
+                    "message": f"ReportAgent执行失败: {str(exc)}",
+                },
+            )
+            if attempt == 2:
+                raise
+            backoff = min(5 * attempt, 15)
+            emit(
+                "stage",
+                {
+                    "stage": "retry_wait",
+                    "attempt": attempt,
+                    "wait_seconds": backoff,
+                    "message": f"{backoff} 秒后重试生成任务",
+                },
+            )
+            time.sleep(backoff)
+
+    if local_result is None:
+        raise HTTPException(status_code=500, detail="report generation failed without result")
+
     data = local_result if isinstance(local_result, dict) else {"summary_text": str(local_result)}
 
     return {
@@ -1076,7 +1191,7 @@ def report_engine_stream(body: ReportRequest, request: Request, _auth: None = De
         body.merged_result = {}
 
     return _stream_with_heartbeat(
-        lambda: _run_report_engine(body),
+        lambda stream_handler=None: _run_report_engine(body, stream_handler=stream_handler),
         {
             "engine": "report",
             "query": query,

@@ -40,6 +40,18 @@ class StreamingConnectionError(Exception):
         self.partial_content = partial_content
 
 
+def _is_non_retriable_http_error(error: Exception) -> bool:
+    """Return True for permanent HTTP errors that should fail fast."""
+    if not isinstance(error, requests.exceptions.HTTPError):
+        return False
+    response = getattr(error, "response", None)
+    if response is None:
+        return False
+    status_code = int(getattr(response, "status_code", 0) or 0)
+    # 429 is transient (rate-limit); most other 4xx are permanent request issues.
+    return 400 <= status_code < 500 and status_code != 429
+
+
 class LLMClient:
     """Requests-based wrapper around the OpenAI-compatible chat completion API."""
 
@@ -360,6 +372,9 @@ class LLMClient:
                     raise
                     
             except Exception as e:
+                if _is_non_retriable_http_error(e):
+                    logger.error(f"遇到不可重试HTTP错误，直接失败: {e}")
+                    raise
                 if attempt < max_retries - 1:
                     wait_time = 30 * (attempt + 1)
                     logger.warning(f"第 {attempt + 1} 次尝试失败: {e}，等待 {wait_time} 秒后重试...")
@@ -373,7 +388,6 @@ class LLMClient:
         # 不应该到达这里
         return last_partial if last_partial else ""
     
-    @with_retry(LLM_RETRY_CONFIG)
     def stream_invoke_to_string(self, system_prompt: str, user_prompt: str, **kwargs) -> str:
         """
         流式调用LLM并安全地拼接为完整字符串
