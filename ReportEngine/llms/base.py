@@ -65,11 +65,26 @@ class LLMClient:
         self.base_url = base_url.rstrip('/') if base_url else "https://api.openai.com/v1"
         self.model_name = model_name
         self.provider = model_name
-        timeout_fallback = os.getenv("LLM_REQUEST_TIMEOUT") or os.getenv("QUERY_ENGINE_REQUEST_TIMEOUT") or "1800"
+        timeout_fallback = (
+            os.getenv("REPORT_ENGINE_API_TIMEOUT")
+            or os.getenv("LLM_REQUEST_TIMEOUT")
+            or os.getenv("QUERY_ENGINE_REQUEST_TIMEOUT")
+            or "600"
+        )
         try:
             self.timeout = float(timeout_fallback)
         except ValueError:
-            self.timeout = 1800.0
+            self.timeout = 600.0
+        try:
+            self.stream_max_retries = max(1, min(5, int(os.getenv("REPORT_ENGINE_STREAM_MAX_RETRIES", "2"))))
+        except ValueError:
+            self.stream_max_retries = 2
+        try:
+            self.stream_retry_base_delay = max(
+                1.0, float(os.getenv("REPORT_ENGINE_STREAM_RETRY_BASE_DELAY", "10"))
+            )
+        except ValueError:
+            self.stream_retry_base_delay = 10.0
         
         # Prepare headers for requests
         self.headers = {
@@ -361,7 +376,7 @@ class LLMClient:
                     logger.info(f"第 {attempt + 1} 次尝试中断，已累积 {len(last_partial)} 字符")
                 
                 if attempt < max_retries - 1:
-                    wait_time = 30 * (attempt + 1)  # 递增等待时间
+                    wait_time = self.stream_retry_base_delay * (attempt + 1)  # 递增等待时间
                     logger.info(f"等待 {wait_time} 秒后重试...")
                     time.sleep(wait_time)
                 else:
@@ -376,7 +391,7 @@ class LLMClient:
                     logger.error(f"遇到不可重试HTTP错误，直接失败: {e}")
                     raise
                 if attempt < max_retries - 1:
-                    wait_time = 30 * (attempt + 1)
+                    wait_time = self.stream_retry_base_delay * (attempt + 1)
                     logger.warning(f"第 {attempt + 1} 次尝试失败: {e}，等待 {wait_time} 秒后重试...")
                     time.sleep(wait_time)
                 else:
@@ -403,7 +418,12 @@ class LLMClient:
         """
         # 使用带恢复机制的流式调用
         try:
-            content = self.stream_invoke_with_recovery(system_prompt, user_prompt, max_retries=3, **kwargs)
+            content = self.stream_invoke_with_recovery(
+                system_prompt,
+                user_prompt,
+                max_retries=self.stream_max_retries,
+                **kwargs,
+            )
             
             if content:
                 # 清理reasoning模型的思维过程

@@ -876,6 +876,18 @@ def _safe_path(path: str) -> str:
     return str(Path(path))
 
 
+def _is_non_retriable_report_error(exc: Exception) -> bool:
+    """Treat most 4xx upstream HTTP errors as permanent and fail fast."""
+    response = getattr(exc, "response", None)
+    status_code = int(getattr(response, "status_code", 0) or 0)
+    if 400 <= status_code < 500 and status_code != 429:
+        return True
+    message = str(exc or "").lower()
+    if "404 client error" in message or "400 client error" in message or "401 client error" in message or "403 client error" in message:
+        return True
+    return False
+
+
 def _resolve_download_file(path_text: str) -> Path:
     """Resolve user-provided file path under allowlisted report output directories."""
     if not path_text or not str(path_text).strip():
@@ -945,6 +957,19 @@ def _run_report_engine(body: ReportRequest, stream_handler=None) -> Dict[str, An
                     },
                 )
                 raise HTTPException(status_code=502, detail=hint_message) from exc
+
+            if _is_non_retriable_report_error(exc):
+                fast_fail_message = f"ReportAgent执行失败（不可重试）: {str(exc)}"
+                emit(
+                    "warning",
+                    {
+                        "stage": "agent_running",
+                        "attempt": attempt,
+                        "reason": "non_retriable",
+                        "message": fast_fail_message,
+                    },
+                )
+                raise HTTPException(status_code=502, detail=fast_fail_message) from exc
 
             emit(
                 "warning",
