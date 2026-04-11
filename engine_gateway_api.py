@@ -34,7 +34,7 @@ from queue import Queue, Empty
 
 import uvicorn
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import inspect
 
@@ -194,6 +194,19 @@ class EngineRuntime:
 
 
 ENGINE_RUNTIME = EngineRuntime()
+
+
+def _project_root() -> Path:
+    return Path(__file__).resolve().parent
+
+
+def _report_download_roots() -> List[Path]:
+    root = _project_root()
+    return [
+        (root / "outputs").resolve(),
+        (root / "final_reports").resolve(),
+        (root / "logs").resolve(),
+    ]
 
 
 INSIGHT_REQUIRED_TABLES = [
@@ -863,6 +876,28 @@ def _safe_path(path: str) -> str:
     return str(Path(path))
 
 
+def _resolve_download_file(path_text: str) -> Path:
+    """Resolve user-provided file path under allowlisted report output directories."""
+    if not path_text or not str(path_text).strip():
+        raise HTTPException(status_code=400, detail="missing query param: path")
+
+    candidate = Path(path_text.strip())
+    if not candidate.is_absolute():
+        candidate = (_project_root() / candidate).resolve()
+    else:
+        candidate = candidate.resolve()
+
+    allowed = _report_download_roots()
+    is_allowed = any(str(candidate).lower().startswith(str(base).lower() + os.sep) or candidate == base for base in allowed)
+    if not is_allowed:
+        raise HTTPException(status_code=403, detail="path is outside allowed report directories")
+
+    if not candidate.exists() or not candidate.is_file():
+        raise HTTPException(status_code=404, detail="file not found")
+
+    return candidate
+
+
 def _run_report_engine(body: ReportRequest, stream_handler=None) -> Dict[str, Any]:
     context = body.context or {}
     request_id = str(context.get("request_id") or uuid.uuid4())
@@ -1019,6 +1054,7 @@ def capabilities():
             "forum_host_speech_stream": "/v1/forum/host-speech/stream",
             "report": "/v1/report",
             "report_stream": "/v1/report/stream",
+            "report_download": "/v1/report/download?path=<relative_or_absolute_file_path>",
             "health": "/healthz",
             "docs": "/docs",
             "redoc": "/redoc",
@@ -1200,6 +1236,13 @@ def report_engine_stream(body: ReportRequest, request: Request, _auth: None = De
         },
         request,
     )
+
+
+@app.get("/v1/report/download")
+def report_download(path: str, filename: Optional[str] = None, _auth: None = Depends(_require_auth)):
+    file_path = _resolve_download_file(path)
+    download_name = filename.strip() if isinstance(filename, str) and filename.strip() else file_path.name
+    return FileResponse(path=str(file_path), filename=download_name, media_type="application/octet-stream")
 
 
 @app.post("/v1/forum/host-speech")
