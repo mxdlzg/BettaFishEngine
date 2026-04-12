@@ -591,7 +591,7 @@ class DeepSearchAgent:
         max_paragraphs = max(1, int(getattr(self.config, "MAX_PARAGRAPHS", total_paragraphs) or total_paragraphs))
         total_paragraphs = min(total_paragraphs, max_paragraphs)
 
-        max_workers = max(1, int(getattr(self.config, "MAX_PARAGRAPH_WORKERS", 3) or 3))
+        max_workers = max(1, int(getattr(self.config, "MAX_PARAGRAPH_WORKERS", 5) or 5))
         max_workers = min(max_workers, total_paragraphs) if total_paragraphs > 0 else 1
 
         if total_paragraphs <= 1 or max_workers <= 1:
