@@ -725,7 +725,7 @@ class ReportAgent:
                     'completion_status': completion_status,
                 }
 
-            chapter_workers = min(3, total_chapters) if total_chapters > 0 else 1
+            chapter_workers = min(5, total_chapters) if total_chapters > 0 else 1
             with ThreadPoolExecutor(max_workers=chapter_workers) as executor:
                 future_map = {
                     executor.submit(_generate_single_chapter, section): section
