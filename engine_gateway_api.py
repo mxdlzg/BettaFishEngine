@@ -299,8 +299,18 @@ class _QueueLogHandler(logging.Handler):
         self.target_thread_id = target_thread_id
         self.request_id = request_id
 
+    @staticmethod
+    def _is_stream_related_thread(thread_id: int, target_thread_id: int, thread_name: str = "") -> bool:
+        """Include the stream worker thread and paragraph concurrency pool threads."""
+        if int(thread_id) == int(target_thread_id):
+            return True
+        normalized_name = str(thread_name or "").lower()
+        return normalized_name.startswith(f"paragraph-worker-{int(target_thread_id)}")
+
     def emit(self, record: logging.LogRecord) -> None:
-        if int(getattr(record, "thread", -1)) != int(self.target_thread_id):
+        record_thread_id = int(getattr(record, "thread", -1) or -1)
+        record_thread_name = str(getattr(record, "threadName", "") or "")
+        if not self._is_stream_related_thread(record_thread_id, self.target_thread_id, record_thread_name):
             return
         try:
             self.queue.put(
@@ -386,7 +396,12 @@ def _stream_with_heartbeat(run_fn, stream_meta: Dict[str, Any], request: Optiona
                 record = message.record
                 record_thread = record.get("thread")
                 record_thread_id = getattr(record_thread, "id", None)
-                if int(record_thread_id or -1) != int(worker_thread_id):
+                record_thread_name = getattr(record_thread, "name", "")
+                if not _QueueLogHandler._is_stream_related_thread(
+                    int(record_thread_id or -1),
+                    worker_thread_id,
+                    str(record_thread_name or ""),
+                ):
                     return
                 queue.put(
                     (
@@ -431,7 +446,11 @@ def _stream_with_heartbeat(run_fn, stream_meta: Dict[str, Any], request: Optiona
                 _emit_loguru,
                 level="DEBUG",
                 enqueue=False,
-                filter=lambda r: int(getattr(r.get("thread"), "id", -1)) == int(worker_thread_id),
+                filter=lambda r: _QueueLogHandler._is_stream_related_thread(
+                    int(getattr(r.get("thread"), "id", -1) or -1),
+                    worker_thread_id,
+                    str(getattr(r.get("thread"), "name", "") or ""),
+                ),
             )
         except Exception:
             loguru_logger = None

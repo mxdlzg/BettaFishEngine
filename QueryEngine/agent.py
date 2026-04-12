@@ -206,6 +206,7 @@ class DeepSearchAgent:
     def _process_paragraphs(self):
         """处理所有段落"""
         from concurrent.futures import ThreadPoolExecutor, as_completed
+        import threading
 
         total_paragraphs = len(self.state.paragraphs)
         max_paragraphs = max(1, int(getattr(self.config, "MAX_PARAGRAPHS", total_paragraphs) or total_paragraphs))
@@ -223,7 +224,8 @@ class DeepSearchAgent:
 
         logger.info(f"启用段落并发处理: workers={max_workers}, paragraphs={total_paragraphs}")
         completed = 0
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        stream_thread_prefix = f"paragraph-worker-{threading.get_ident()}"
+        with ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix=stream_thread_prefix) as executor:
             future_to_index = {
                 executor.submit(self._process_single_paragraph, i, total_paragraphs): i
                 for i in range(total_paragraphs)
