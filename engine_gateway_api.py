@@ -889,6 +889,87 @@ def _build_report_inputs(merged_result: Dict[str, Any], explicit_reports: Option
     return reports, forum_logs
 
 
+def _report_item_text(value: Any) -> str:
+    """Normalize a report item to text for emptiness checks and diagnostics."""
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value.strip()
+    try:
+        return str(value).strip()
+    except Exception:
+        return ""
+
+
+def _validate_report_inputs_or_raise(
+    reports: List[Any],
+    body: "ReportRequest",
+) -> None:
+    """Fail fast when report inputs are empty, with actionable diagnostics in logs."""
+    normalized = ["", "", ""]
+    for idx in range(3):
+        if idx < len(reports):
+            normalized[idx] = _report_item_text(reports[idx])
+
+    engine_keys = ["query_engine", "media_engine", "insight_engine"]
+    missing_engines: List[str] = []
+    for idx, key in enumerate(engine_keys):
+        text = normalized[idx]
+        if text in ("", "[]", "{}", "None", "null"):
+            missing_engines.append(key)
+
+    if not missing_engines:
+        return
+
+    explicit_type = type(body.reports).__name__ if body.reports is not None else "None"
+    explicit_keys: List[str] = []
+    if isinstance(body.reports, dict):
+        explicit_keys = sorted([str(k) for k in body.reports.keys()])
+    merged_keys = sorted([str(k) for k in (body.merged_result or {}).keys()])
+    logger.error(
+        "Report input validation failed: missing engines={}, explicit_reports_type={}, explicit_report_keys={}, merged_result_keys={}, report_lengths={}",
+        missing_engines,
+        explicit_type,
+        explicit_keys,
+        merged_keys,
+        [len(x) for x in normalized],
+    )
+
+    raise HTTPException(
+        status_code=400,
+        detail={
+            "message": "report inputs are empty for one or more engines",
+            "missing_engines": missing_engines,
+            "required_order": ["query_engine", "media_engine", "insight_engine"],
+            "hint": "Provide non-empty reports (list or dict) or ensure merged_result includes usable engine summaries.",
+        },
+    )
+
+
+def _dump_report_request_for_log(body: "ReportRequest") -> str:
+    """Serialize report request body for diagnostics."""
+    try:
+        if hasattr(body, "model_dump"):
+            payload = body.model_dump()
+        else:
+            payload = body.dict()  # type: ignore[attr-defined]
+    except Exception:
+        payload = {
+            "query": getattr(body, "query", ""),
+            "reports": getattr(body, "reports", None),
+            "forum_logs": getattr(body, "forum_logs", ""),
+            "custom_template": getattr(body, "custom_template", ""),
+            "save_report": getattr(body, "save_report", True),
+            "merged_result": getattr(body, "merged_result", {}),
+            "context": getattr(body, "context", {}),
+        }
+
+    try:
+        return json.dumps(payload, ensure_ascii=False, default=str)
+    except Exception:
+        return str(payload)
+
+
 def _safe_path(path: str) -> str:
     if not path:
         return ""
@@ -930,9 +1011,11 @@ def _resolve_download_file(path_text: str) -> Path:
 
 
 def _run_report_engine(body: ReportRequest, stream_handler=None) -> Dict[str, Any]:
+    logger.info("Raw /v1/report request payload: {}", _dump_report_request_for_log(body))
     context = body.context or {}
     request_id = str(context.get("request_id") or uuid.uuid4())
     reports, merged_forum_logs = _build_report_inputs(body.merged_result, body.reports)
+    _validate_report_inputs_or_raise(reports, body)
     forum_logs = body.forum_logs or merged_forum_logs
 
     def emit(event_type: str, payload: Dict[str, Any]) -> None:
