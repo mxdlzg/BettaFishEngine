@@ -449,7 +449,7 @@ class ReportAgent:
                 logger.warning(f"流式事件回调失败: {callback_error}")
 
         logger.info(f"开始生成报告 {report_id}: {query}")
-        logger.info(f"输入数据 - 报告数量: {len(reports)}, 论坛日志长度: {len(str(forum_logs))}")
+        logger.info(f"输入数据 - 报告数量: {len(reports)}, 论坛日志长度: {len(str(forum_logs))}, normalized_reports长度: {len(normalized_reports)}")
         emit('stage', {'stage': 'agent_start', 'report_id': report_id, 'query': query})
 
         try:
