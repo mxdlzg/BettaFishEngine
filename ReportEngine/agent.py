@@ -10,6 +10,7 @@ Report Agent主类。
 
 import json
 import os
+import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from copy import deepcopy
 from pathlib import Path
@@ -740,7 +741,11 @@ class ReportAgent:
             configured_workers = max(1, int(getattr(self.config, "CHAPTER_MAX_WORKERS", 5) or 1))
             chapter_workers = min(configured_workers, total_chapters) if total_chapters > 0 else 1
             logger.info(f"章节生成并发数: {chapter_workers}/{total_chapters}")
-            with ThreadPoolExecutor(max_workers=chapter_workers) as executor:
+            stream_worker_id = threading.get_ident()
+            with ThreadPoolExecutor(
+                max_workers=chapter_workers,
+                thread_name_prefix=f"paragraph-worker-{stream_worker_id}",
+            ) as executor:
                 future_map = {
                     executor.submit(_generate_single_chapter, section): section
                     for section in sections

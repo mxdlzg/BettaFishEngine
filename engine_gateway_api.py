@@ -29,7 +29,7 @@ import threading
 from contextlib import redirect_stdout, redirect_stderr
 from pathlib import Path
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Optional, Tuple, Union, Set
 from queue import Queue, Empty
 
 import uvicorn
@@ -297,6 +297,92 @@ def _force_stop_thread(thread: threading.Thread) -> bool:
     return False
 
 
+class _StreamThreadTracker:
+    """Track threads spawned by a stream worker so child worker logs stay attached to the SSE request."""
+
+    _lock = threading.RLock()
+    _patched = False
+    _original_start = None
+    _roots: Dict[int, Set[int]] = {}
+
+    @classmethod
+    def start_root(cls, root_thread_id: int) -> None:
+        cls._install()
+        with cls._lock:
+            cls._roots[int(root_thread_id)] = {int(root_thread_id)}
+
+    @classmethod
+    def finish_root(cls, root_thread_id: int) -> None:
+        with cls._lock:
+            cls._roots.pop(int(root_thread_id), None)
+
+    @classmethod
+    def is_related(cls, root_thread_id: int, thread_id: int) -> bool:
+        with cls._lock:
+            return int(thread_id) in cls._roots.get(int(root_thread_id), set())
+
+    @classmethod
+    def _root_ids_for_parent(cls, parent_thread_id: int) -> List[int]:
+        with cls._lock:
+            parent_thread_id = int(parent_thread_id)
+            return [
+                root_id
+                for root_id, thread_ids in cls._roots.items()
+                if parent_thread_id in thread_ids
+            ]
+
+    @classmethod
+    def _register_child_for_roots(cls, root_ids: List[int], child_thread_id: int) -> None:
+        if not root_ids:
+            return
+        with cls._lock:
+            child_thread_id = int(child_thread_id)
+            for root_id in root_ids:
+                thread_ids = cls._roots.get(int(root_id))
+                if thread_ids is not None:
+                    thread_ids.add(child_thread_id)
+
+    @classmethod
+    def _unregister_child_for_roots(cls, root_ids: List[int], child_thread_id: int) -> None:
+        if not root_ids:
+            return
+        with cls._lock:
+            child_thread_id = int(child_thread_id)
+            for root_id in root_ids:
+                thread_ids = cls._roots.get(int(root_id))
+                if thread_ids is not None and child_thread_id != int(root_id):
+                    thread_ids.discard(child_thread_id)
+
+    @classmethod
+    def _install(cls) -> None:
+        with cls._lock:
+            if cls._patched:
+                return
+            original_start = threading.Thread.start
+            cls._original_start = original_start
+
+            def tracked_start(thread_self, *args, **kwargs):
+                parent_thread_id = threading.get_ident()
+                root_ids = cls._root_ids_for_parent(parent_thread_id)
+                if root_ids and not getattr(thread_self, "_engine_gateway_thread_tracked", False):
+                    original_run = thread_self.run
+
+                    def tracked_run(*run_args, **run_kwargs):
+                        child_thread_id = threading.get_ident()
+                        cls._register_child_for_roots(root_ids, child_thread_id)
+                        try:
+                            return original_run(*run_args, **run_kwargs)
+                        finally:
+                            cls._unregister_child_for_roots(root_ids, child_thread_id)
+
+                    thread_self.run = tracked_run
+                    thread_self._engine_gateway_thread_tracked = True
+                return original_start(thread_self, *args, **kwargs)
+
+            threading.Thread.start = tracked_start
+            cls._patched = True
+
+
 class _QueueLogHandler(logging.Handler):
     """Forward Python logging records to the stream queue as log events."""
 
@@ -308,8 +394,10 @@ class _QueueLogHandler(logging.Handler):
 
     @staticmethod
     def _is_stream_related_thread(thread_id: int, target_thread_id: int, thread_name: str = "") -> bool:
-        """Include the stream worker thread and paragraph concurrency pool threads."""
+        """Include the stream worker thread, its descendants, and known paragraph pool thread names."""
         if int(thread_id) == int(target_thread_id):
+            return True
+        if _StreamThreadTracker.is_related(int(target_thread_id), int(thread_id)):
             return True
         normalized_name = str(thread_name or "").lower()
         return normalized_name.startswith(f"paragraph-worker-{int(target_thread_id)}")
@@ -393,6 +481,7 @@ def _stream_with_heartbeat(run_fn, stream_meta: Dict[str, Any], request: Optiona
 
     def worker() -> None:
         worker_thread_id = threading.get_ident()
+        _StreamThreadTracker.start_root(worker_thread_id)
         root_logger = logging.getLogger()
         queue_handler = _QueueLogHandler(queue, target_thread_id=worker_thread_id, request_id=request_id)
         loguru_logger = None
@@ -544,6 +633,7 @@ def _stream_with_heartbeat(run_fn, stream_meta: Dict[str, Any], request: Optiona
             )
             queue.put(("error", {"status_code": 500, "detail": str(exc)}))
         finally:
+            _StreamThreadTracker.finish_root(worker_thread_id)
             root_logger.removeHandler(queue_handler)
             if loguru_logger is not None and loguru_sink_id is not None:
                 try:
