@@ -181,7 +181,7 @@ class ReportAgent:
     - 章节存储、IR装订、渲染器等产出链路；
     - 状态管理、日志、输入输出校验与持久化。
     """
-    _CONTENT_SPARSE_MIN_ATTEMPTS = 3
+    _CONTENT_SPARSE_MIN_ATTEMPTS = 2
     _CONTENT_SPARSE_WARNING_TEXT = "本章LLM生成的内容字数可能过低，必要时可以尝试重新运行程序。"
     _STRUCTURAL_RETRY_ATTEMPTS = 2
     
@@ -209,6 +209,9 @@ class ReportAgent:
         
         # 初始化LLM客户端
         self.llm_client = self._initialize_llm()
+        self.llm_client.enable_json_response_format = bool(
+            getattr(self.config, "ENABLE_JSON_RESPONSE_FORMAT", False)
+        )
         self.json_rescue_clients = self._initialize_rescue_llms()
         
         # 初始化章级存储/校验/渲染组件
@@ -376,6 +379,9 @@ class ReportAgent:
                 continue
             try:
                 client = LLMClient(api_key=api_key, model_name=model_name, base_url=base_url)
+                client.enable_json_response_format = bool(
+                    getattr(self.config, "ENABLE_JSON_RESPONSE_FORMAT", False)
+                )
             except Exception as exc:
                 logger.warning(f"{label} LLM初始化失败，跳过该修复通道: {exc}")
                 continue
@@ -561,9 +567,15 @@ class ReportAgent:
             emit('stage', {'stage': 'storage_ready', 'run_dir': str(run_dir)})
 
             chapters = []
-            chapter_max_attempts = max(
-                self._CONTENT_SPARSE_MIN_ATTEMPTS, self.config.CHAPTER_JSON_MAX_ATTEMPTS
+            content_sparse_min_attempts = max(
+                1,
+                int(getattr(self.config, "CONTENT_SPARSE_MIN_ATTEMPTS", self._CONTENT_SPARSE_MIN_ATTEMPTS) or 1),
             )
+            chapter_json_max_attempts = max(
+                1,
+                int(getattr(self.config, "CHAPTER_JSON_MAX_ATTEMPTS", 2) or 1),
+            )
+            chapter_max_attempts = max(content_sparse_min_attempts, chapter_json_max_attempts)
             total_chapters = len(sections)  # 总章节数
             completed_chapters = 0  # 已完成章节数
 
@@ -616,7 +628,7 @@ class ReportAgent:
                         will_fallback = (
                             isinstance(structured_error, ChapterContentError)
                             and attempt >= chapter_max_attempts
-                            and attempt >= self._CONTENT_SPARSE_MIN_ATTEMPTS
+                            and attempt >= content_sparse_min_attempts
                             and best_sparse_candidate is not None
                         )
                         logger.warning(
@@ -725,7 +737,9 @@ class ReportAgent:
                     'completion_status': completion_status,
                 }
 
-            chapter_workers = min(5, total_chapters) if total_chapters > 0 else 1
+            configured_workers = max(1, int(getattr(self.config, "CHAPTER_MAX_WORKERS", 5) or 1))
+            chapter_workers = min(configured_workers, total_chapters) if total_chapters > 0 else 1
+            logger.info(f"章节生成并发数: {chapter_workers}/{total_chapters}")
             with ThreadPoolExecutor(max_workers=chapter_workers) as executor:
                 future_map = {
                     executor.submit(_generate_single_chapter, section): section

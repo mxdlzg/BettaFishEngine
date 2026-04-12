@@ -79,6 +79,11 @@ class ReportRequest(BaseModel):
     save_report: bool = Field(default=True, description="Whether to persist report artifacts")
     merged_result: Dict[str, Any] = Field(default_factory=dict, description="Merged analysis result")
     context: Dict[str, Any] = Field(default_factory=dict, description="Optional context metadata")
+    max_chapter_workers: Optional[int] = Field(default=None, description="Override report chapter concurrency workers")
+    chapter_json_max_attempts: Optional[int] = Field(default=None, description="Override per-chapter JSON retry attempts")
+    content_sparse_min_attempts: Optional[int] = Field(default=None, description="Override per-chapter sparse-content retry attempts")
+    enable_json_response_format: Optional[bool] = Field(default=None, description="Request JSON object response_format from compatible LLM APIs")
+    gateway_max_attempts: Optional[int] = Field(default=None, description="Override whole report gateway retry attempts")
 
 
 class ForumRequest(BaseModel):
@@ -184,9 +189,11 @@ class EngineRuntime:
         self._apply_overrides(cfg, overrides or {})
         return self.insight_agent_class(config=cfg)
 
-    def create_report_agent(self):
+    def create_report_agent(self, overrides: Optional[Dict[str, Any]] = None):
         self.ensure_ready()
-        return self.report_agent_class(config=self.report_settings)
+        cfg = self._clone_settings(self.report_settings)
+        self._apply_overrides(cfg, overrides or {})
+        return self.report_agent_class(config=cfg)
 
     def create_forum_host(self):
         self.ensure_ready()
@@ -688,6 +695,17 @@ def _build_runtime_overrides(body: ResearchRequest) -> Dict[str, Any]:
     return {k: v for k, v in overrides.items() if v is not None}
 
 
+def _build_report_runtime_overrides(body: ReportRequest) -> Dict[str, Any]:
+    overrides: Dict[str, Any] = {
+        "CHAPTER_MAX_WORKERS": _clamp_optional_int(body.max_chapter_workers, 1, 16),
+        "CHAPTER_JSON_MAX_ATTEMPTS": _clamp_optional_int(body.chapter_json_max_attempts, 1, 5),
+        "CONTENT_SPARSE_MIN_ATTEMPTS": _clamp_optional_int(body.content_sparse_min_attempts, 1, 5),
+    }
+    if body.enable_json_response_format is not None:
+        overrides["ENABLE_JSON_RESPONSE_FORMAT"] = bool(body.enable_json_response_format)
+    return {k: v for k, v in overrides.items() if v is not None}
+
+
 def _local_query_engine(query: str, save_report: bool, export_formats: Optional[List[str]], overrides: Dict[str, int]) -> Dict[str, Any]:
     agent = ENGINE_RUNTIME.create_query_agent(overrides=overrides)
     report = agent.research(query=query, save_report=save_report, export_formats=export_formats)
@@ -736,7 +754,7 @@ def _local_report_engine(
     forum_logs: str,
     stream_handler=None,
 ) -> Dict[str, Any]:
-    agent = ENGINE_RUNTIME.create_report_agent()
+    agent = ENGINE_RUNTIME.create_report_agent(overrides=_build_report_runtime_overrides(body))
     return agent.generate_report(
         query=body.query,
         reports=reports,
@@ -1026,8 +1044,16 @@ def _run_report_engine(body: ReportRequest, stream_handler=None) -> Dict[str, An
         except Exception:
             pass
 
+    whole_run_attempts = body.gateway_max_attempts
+    if whole_run_attempts is None:
+        try:
+            whole_run_attempts = int(os.getenv("REPORT_ENGINE_GATEWAY_MAX_ATTEMPTS", "1"))
+        except ValueError:
+            whole_run_attempts = 1
+    whole_run_attempts = max(1, min(3, int(whole_run_attempts)))
+
     local_result = None
-    for attempt in range(1, 3):
+    for attempt in range(1, whole_run_attempts + 1):
         try:
             emit(
                 "stage",
@@ -1081,7 +1107,7 @@ def _run_report_engine(body: ReportRequest, stream_handler=None) -> Dict[str, An
                     "message": f"ReportAgent执行失败: {str(exc)}",
                 },
             )
-            if attempt == 2:
+            if attempt == whole_run_attempts:
                 raise
             backoff = min(5 * attempt, 15)
             emit(

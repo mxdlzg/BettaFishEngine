@@ -56,6 +56,15 @@ class Settings(BaseSettings):
     CHAPTER_JSON_MAX_ATTEMPTS: int = Field(
         2, description="章节JSON解析失败时的最大尝试次数"
     )
+    CHAPTER_MAX_WORKERS: int = Field(
+        5, description="章节生成并发数上限"
+    )
+    CONTENT_SPARSE_MIN_ATTEMPTS: int = Field(
+        2, description="章节内容过稀时的最小尝试次数"
+    )
+    ENABLE_JSON_RESPONSE_FORMAT: bool = Field(
+        False, description="调用OpenAI兼容接口时是否请求JSON object响应格式"
+    )
     TEMPLATE_DIR: str = Field("ReportEngine/report_template", description="多模板目录")
     API_TIMEOUT: float = Field(900.0, description="单API超时时间（秒）")
     MAX_RETRY_DELAY: float = Field(180.0, description="最大重试间隔（秒）")
@@ -92,6 +101,7 @@ def print_config(config: Settings):
     message += f"输出目录: {config.OUTPUT_DIR}\n"
     message += f"章节JSON目录: {config.CHAPTER_OUTPUT_DIR}\n"
     message += f"章节JSON最大尝试次数: {config.CHAPTER_JSON_MAX_ATTEMPTS}\n"
+    message += f"章节生成并发数上限: {config.CHAPTER_MAX_WORKERS}\n"
     message += f"整本IR目录: {config.DOCUMENT_IR_OUTPUT_DIR}\n"
     message += f"模板目录: {config.TEMPLATE_DIR}\n"
     message += f"API 超时时间: {config.API_TIMEOUT} 秒\n"

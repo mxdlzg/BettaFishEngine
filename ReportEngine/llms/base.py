@@ -9,6 +9,7 @@ import sys
 import json
 import re
 import time
+import threading
 from datetime import datetime
 from typing import Any, Dict, Optional, Generator
 from loguru import logger
@@ -94,25 +95,45 @@ class LLMClient:
             "Accept": "text/event-stream"
         }
         
-        # Create a session with retry adapter for better connection handling
-        self.session = requests.Session()
-        
         # Configure retry strategy for transient failures
-        retry_strategy = Retry(
+        self.retry_strategy = Retry(
             total=3,
             backoff_factor=1,
             status_forcelist=[429, 500, 502, 503, 504],
             allowed_methods=["POST"],
             raise_on_status=False
         )
-        adapter = HTTPAdapter(
-            max_retries=retry_strategy,
-            pool_connections=10,
-            pool_maxsize=10
-        )
-        self.session.mount("http://", adapter)
-        self.session.mount("https://", adapter)
-        self.session.headers.update(self.headers)
+        try:
+            self.pool_maxsize = max(10, int(os.getenv("REPORT_ENGINE_HTTP_POOL_MAXSIZE", "20")))
+        except ValueError:
+            self.pool_maxsize = 20
+        self._thread_local = threading.local()
+
+    def _get_session(self) -> requests.Session:
+        """Return a per-thread session; requests.Session is not safe to share across chapter workers."""
+        session = getattr(self._thread_local, "session", None)
+        if session is None:
+            session = requests.Session()
+            adapter = HTTPAdapter(
+                max_retries=self.retry_strategy,
+                pool_connections=self.pool_maxsize,
+                pool_maxsize=self.pool_maxsize,
+            )
+            session.mount("http://", adapter)
+            session.mount("https://", adapter)
+            session.headers.update(self.headers)
+            self._thread_local.session = session
+        return session
+
+    def _should_request_json_object(self, kwargs: Dict[str, Any]) -> bool:
+        explicit = kwargs.get("response_format")
+        if isinstance(explicit, dict):
+            return explicit.get("type") == "json_object"
+        configured = getattr(self, "enable_json_response_format", None)
+        if configured is not None:
+            return bool(configured)
+        env_value = os.getenv("REPORT_ENGINE_ENABLE_JSON_RESPONSE_FORMAT", "").strip().lower()
+        return env_value in {"1", "true", "yes", "on"}
 
     @with_retry(LLM_RETRY_CONFIG)
     def invoke(self, system_prompt: str, user_prompt: str, **kwargs) -> str:
@@ -140,6 +161,8 @@ class LLMClient:
 
         allowed_keys = {"temperature", "top_p", "presence_penalty", "frequency_penalty"}
         extra_params = {key: value for key, value in kwargs.items() if key in allowed_keys and value is not None}
+        if isinstance(kwargs.get("response_format"), dict):
+            extra_params["response_format"] = kwargs["response_format"]
         
         timeout = kwargs.get("timeout", self.timeout)
 
@@ -149,11 +172,12 @@ class LLMClient:
             "stream": False,
             **extra_params
         }
+        if self._should_request_json_object(extra_params):
+            payload["response_format"] = {"type": "json_object"}
 
         try:
-            response = requests.post(
+            response = self._get_session().post(
                 f"{self.base_url}/chat/completions",
-                headers=self.headers,
                 json=payload,
                 timeout=timeout
             )
@@ -205,12 +229,14 @@ class LLMClient:
             "stream": True,
             **extra_params
         }
+        if self._should_request_json_object(extra_params):
+            payload["response_format"] = {"type": "json_object"}
         
         # Use tuple timeout: (connect_timeout, read_timeout)
         connect_timeout = min(timeout, 60)  # Max 60s for connection
         read_timeout = timeout  # Full timeout for reading stream
         
-        response = self.session.post(
+        response = self._get_session().post(
             f"{self.base_url}/chat/completions",
             json=payload,
             timeout=(connect_timeout, read_timeout),
@@ -245,6 +271,8 @@ class LLMClient:
 
         allowed_keys = {"temperature", "top_p", "presence_penalty", "frequency_penalty"}
         extra_params = {key: value for key, value in kwargs.items() if key in allowed_keys and value is not None}
+        if isinstance(kwargs.get("response_format"), dict):
+            extra_params["response_format"] = kwargs["response_format"]
         
         timeout = kwargs.get("timeout", self.timeout)
         
