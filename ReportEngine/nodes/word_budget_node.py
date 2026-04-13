@@ -78,9 +78,47 @@ class WordBudgetNode(BaseNode):
             temperature=0.25,
             top_p=0.85,
         )
+        if not response or not response.strip():
+            logger.warning("章节字数规划LLM返回空内容，使用本地兜底规划")
+            return self._build_fallback_plan(sections)
         plan = self._parse_response(response)
         logger.info("章节字数规划已生成")
         return plan
+
+    def _build_fallback_plan(self, sections: List[TemplateSection]) -> Dict[str, Any]:
+        chapter_count = max(1, len(sections))
+        total_words = max(4000, chapter_count * 900)
+        per_chapter = max(600, total_words // chapter_count)
+        chapters = []
+        for section in sections:
+            outline = section.outline if isinstance(section.outline, list) and section.outline else [section.title]
+            chapters.append(
+                {
+                    "chapterId": section.chapter_id,
+                    "title": section.title,
+                    "targetWords": per_chapter,
+                    "minWords": max(300, int(per_chapter * 0.5)),
+                    "maxWords": int(per_chapter * 1.3),
+                    "emphasis": outline[:3],
+                    "rationale": "LLM篇幅规划为空时使用的本地兜底规划。",
+                    "sections": [
+                        {
+                            "title": item,
+                            "targetWords": max(200, per_chapter // max(1, len(outline))),
+                            "minWords": 100,
+                            "maxWords": max(300, per_chapter),
+                            "notes": "按模板小节均衡展开。",
+                        }
+                        for item in outline
+                    ],
+                }
+            )
+        return {
+            "totalWords": total_words,
+            "tolerance": 0.3,
+            "globalGuidelines": ["优先保证结构完整和事实准确，内容不足时可用简洁分析兜底。"],
+            "chapters": chapters,
+        }
 
     def _parse_response(self, raw: str) -> Dict[str, Any]:
         """

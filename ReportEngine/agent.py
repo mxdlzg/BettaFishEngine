@@ -182,7 +182,7 @@ class ReportAgent:
     - 章节存储、IR装订、渲染器等产出链路；
     - 状态管理、日志、输入输出校验与持久化。
     """
-    _CONTENT_SPARSE_MIN_ATTEMPTS = 2
+    _CONTENT_SPARSE_MIN_ATTEMPTS = 1
     _CONTENT_SPARSE_WARNING_TEXT = "本章LLM生成的内容字数可能过低，必要时可以尝试重新运行程序。"
     _STRUCTURAL_RETRY_ATTEMPTS = 2
     
@@ -408,6 +408,9 @@ class ReportAgent:
             self.chapter_storage,
             fallback_llm_clients=self.json_rescue_clients,
             error_log_dir=self.config.JSON_ERROR_LOG_DIR,
+            enable_cross_engine_json_rescue=getattr(self.config, "ENABLE_CROSS_ENGINE_JSON_RESCUE", False),
+            enable_llm_structural_repair=getattr(self.config, "ENABLE_LLM_STRUCTURAL_REPAIR", False),
+            repair_timeout=getattr(self.config, "CHAPTER_REPAIR_TIMEOUT", 300.0),
         )
     
     def generate_report(self, query: str, reports: List[Any], forum_logs: str = "",
@@ -628,7 +631,6 @@ class ReportAgent:
                                     best_sparse_score = candidate_score
                         will_fallback = (
                             isinstance(structured_error, ChapterContentError)
-                            and attempt >= chapter_max_attempts
                             and attempt >= content_sparse_min_attempts
                             and best_sparse_candidate is not None
                         )
@@ -640,7 +642,7 @@ class ReportAgent:
                             total=chapter_max_attempts,
                             error=structured_error,
                         )
-                        status_value = 'retrying' if attempt < chapter_max_attempts or will_fallback else 'error'
+                        status_value = 'completed_with_fallback' if will_fallback else ('retrying' if attempt < chapter_max_attempts else 'error')
                         status_payload = {
                             'chapterId': section.chapter_id,
                             'title': section.title,

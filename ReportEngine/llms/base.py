@@ -95,9 +95,14 @@ class LLMClient:
             "Accept": "text/event-stream"
         }
         
+        try:
+            http_max_retries = max(0, min(3, int(os.getenv("REPORT_ENGINE_HTTP_MAX_RETRIES", "1"))))
+        except ValueError:
+            http_max_retries = 1
+
         # Configure retry strategy for transient failures
         self.retry_strategy = Retry(
-            total=3,
+            total=http_max_retries,
             backoff_factor=1,
             status_forcelist=[429, 500, 502, 503, 504],
             allowed_methods=["POST"],

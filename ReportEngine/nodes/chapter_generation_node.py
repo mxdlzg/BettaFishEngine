@@ -139,6 +139,9 @@ class ChapterGenerationNode(BaseNode):
         storage: ChapterStorage,
         fallback_llm_clients: Optional[List[Tuple[str, Any]]] = None,
         error_log_dir: Optional[str | Path] = None,
+        enable_cross_engine_json_rescue: bool = False,
+        enable_llm_structural_repair: bool = False,
+        repair_timeout: float = 90.0,
     ):
         """
         记录LLM客户端/校验器/章节存储器，便于run方法调度。
@@ -162,6 +165,9 @@ class ChapterGenerationNode(BaseNode):
         self._rescue_attempted_labels: Dict[str, Set[str]] = {}
         self._skipped_placeholder_chapters: Set[str] = set()
         self._archived_failed_json: Dict[str, str] = {}
+        self.enable_cross_engine_json_rescue = bool(enable_cross_engine_json_rescue)
+        self.enable_llm_structural_repair = bool(enable_llm_structural_repair)
+        self.repair_timeout = max(10.0, float(repair_timeout or 90.0))
         # 兜底使用更鲁棒的JSON解析器，尽可能拆出合法块
         self._robust_parser = RobustJSONParser(
             enable_json_repair=True,
@@ -220,12 +226,14 @@ class ChapterGenerationNode(BaseNode):
             logger.warning(f"{section.title} 章节JSON解析失败，尝试跨引擎修复: {parse_error}")
             parse_context.append(str(parse_error))
             self._archive_failed_output(section, raw_text)
-            recovered = self._attempt_cross_engine_json_rescue(
-                section,
-                llm_payload,
-                raw_text,
-                run_id,
-            )
+            recovered = None
+            if self.enable_cross_engine_json_rescue and str(raw_text or "").strip():
+                recovered = self._attempt_cross_engine_json_rescue(
+                    section,
+                    llm_payload,
+                    raw_text,
+                    run_id,
+                )
             if recovered:
                 chapter_json = recovered
                 logger.info(f"{section.title} 章节JSON已通过跨引擎修复")
@@ -245,7 +253,7 @@ class ChapterGenerationNode(BaseNode):
         self._sanitize_chapter_blocks(chapter_json)
 
         valid, errors = self.validator.validate_chapter(chapter_json)
-        if not valid and errors:
+        if not valid and errors and self.enable_llm_structural_repair:
             repaired = self._attempt_llm_structural_repair(
                 chapter_json,
                 errors,
@@ -278,6 +286,26 @@ class ChapterGenerationNode(BaseNode):
             chapter_json,
             errors=None if not error_messages else error_messages,
         )
+
+        if not valid and not self.enable_llm_structural_repair:
+            placeholder = self._build_placeholder_chapter(
+                section,
+                raw_text,
+                ChapterValidationError(
+                    f"{section.title} 章节JSON本地规整后仍未通过校验",
+                    errors=errors,
+                ),
+            )
+            if placeholder:
+                chapter_json, placeholder_notes = placeholder
+                error_messages.extend(placeholder_notes)
+                self.storage.persist_chapter(
+                    run_dir,
+                    chapter_meta,
+                    chapter_json,
+                    errors=error_messages,
+                )
+                return chapter_json
 
         if not valid:
             raise ChapterValidationError(
@@ -518,6 +546,7 @@ class ChapterGenerationNode(BaseNode):
                     repair_prompt,
                     temperature=0.0,
                     top_p=0.05,
+                    timeout=self.repair_timeout,
                 )
             except Exception as exc:
                 logger.warning(f"{label} JSON修复调用失败: {exc}")
@@ -941,6 +970,7 @@ class ChapterGenerationNode(BaseNode):
                 payload,
                 temperature=0.0,
                 top_p=0.05,
+                timeout=self.repair_timeout,
             )
         except Exception as exc:  # pragma: no cover - 网络或API异常仅记录
             logger.error(f"章节JSON LLM修复调用失败: {exc}")

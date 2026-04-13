@@ -83,6 +83,9 @@ class ReportRequest(BaseModel):
     chapter_json_max_attempts: Optional[int] = Field(default=None, description="Override per-chapter JSON retry attempts")
     content_sparse_min_attempts: Optional[int] = Field(default=None, description="Override per-chapter sparse-content retry attempts")
     enable_json_response_format: Optional[bool] = Field(default=None, description="Request JSON object response_format from compatible LLM APIs")
+    enable_cross_engine_json_rescue: Optional[bool] = Field(default=None, description="Enable cross-engine LLM rescue for malformed chapter JSON")
+    enable_llm_structural_repair: Optional[bool] = Field(default=None, description="Enable LLM repair when local chapter normalization fails validation")
+    chapter_repair_timeout: Optional[float] = Field(default=None, description="Timeout seconds for chapter JSON repair LLM calls")
     gateway_max_attempts: Optional[int] = Field(default=None, description="Override whole report gateway retry attempts")
 
 
@@ -793,6 +796,12 @@ def _build_report_runtime_overrides(body: ReportRequest) -> Dict[str, Any]:
     }
     if body.enable_json_response_format is not None:
         overrides["ENABLE_JSON_RESPONSE_FORMAT"] = bool(body.enable_json_response_format)
+    if body.enable_cross_engine_json_rescue is not None:
+        overrides["ENABLE_CROSS_ENGINE_JSON_RESCUE"] = bool(body.enable_cross_engine_json_rescue)
+    if body.enable_llm_structural_repair is not None:
+        overrides["ENABLE_LLM_STRUCTURAL_REPAIR"] = bool(body.enable_llm_structural_repair)
+    if body.chapter_repair_timeout is not None:
+        overrides["CHAPTER_REPAIR_TIMEOUT"] = max(10.0, min(300.0, float(body.chapter_repair_timeout)))
     return {k: v for k, v in overrides.items() if v is not None}
 
 
