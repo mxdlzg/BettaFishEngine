@@ -1223,19 +1223,12 @@ def _run_report_engine(body: ReportRequest, stream_handler=None) -> Dict[str, An
     if local_result is None:
         raise HTTPException(status_code=500, detail="report generation failed without result")
 
-    data = local_result if isinstance(local_result, dict) else {"summary_text": str(local_result)}
-
-    return {
-        "summary_text": data.get("summary_text") or data.get("summary") or data.get("html_content", ""),
-        "html_path": _safe_path(data.get("html_path", "")),
-        "pdf_path": _safe_path(data.get("pdf_path", "")),
-        "docx_path": _safe_path(data.get("docx_path", "")),
-        "md_path": _safe_path(data.get("md_path", "")),
-        "chart_paths": data.get("chart_paths") if isinstance(data.get("chart_paths"), list) else [],
-        "manifest": _build_manifest("ReportEngine", request_id, context),
-        "logs": data.get("logs") if isinstance(data.get("logs"), list) else ["ReportEngine completed"],
-        "raw_result": data,
-    }
+    data = local_result if isinstance(local_result, dict) else {"html_content": str(local_result)}
+    result = dict(data)
+    result.pop("html_content", None)
+    result.setdefault("manifest", _build_manifest("ReportEngine", request_id, context))
+    result.setdefault("logs", ["ReportEngine completed"])
+    return result
 
 
 def _normalize_forum_logs(raw_logs: Union[str, List[str]], max_lines: Optional[int], max_chars: Optional[int]) -> List[str]:
