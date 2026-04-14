@@ -1,8 +1,0 @@
-{
-  "python_version": "3.11",
-  "dependencies": ["."],
-  "graphs": {
-    "public-opinion": "./agent.py:graph"
-  },
-  "env": ".env"
-}
